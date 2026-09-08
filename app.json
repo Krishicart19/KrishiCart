@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "KrishiCart",
+    "slug": "krishi-cart-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.example.krishicart"
+    }
+  }
+}
+
