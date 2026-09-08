@@ -1,6 +1,7 @@
 ﻿import { StatusBar } from 'expo-status-bar';
-import { useEffect, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, BackHandler, FlatList, Platform, Pressable, SafeAreaView, ScrollView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
+import type { FlatList as FlatListType, ScrollView as ScrollViewType } from 'react-native';
 
 import { ProductCard } from './src/components/ProductCard';
 import { categories, products } from './src/data/catalog';
@@ -24,6 +25,10 @@ export default function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cartScreenOpen, setCartScreenOpen] = useState(false);
+  const categoryListRef = useRef<FlatListType<Product>>(null);
+  const categoryScrollOffsetRef = useRef(0);
+  const categoriesScrollRef = useRef<ScrollViewType>(null);
+  const categoriesScrollOffsetRef = useRef(0);
   const [navigationStack, setNavigationStack] = useState<Array<{
     activeTab: Tab;
     selectedCategory: string | null;
@@ -46,13 +51,21 @@ export default function App() {
       }
       // If product detail is open, just close the product (stay on category page)
       if (selectedProduct) {
+        const savedOffset = categoryScrollOffsetRef.current;
         setSelectedProduct(null);
+        setTimeout(() => {
+          categoryListRef.current?.scrollToOffset({ offset: savedOffset, animated: false });
+        }, 100);
         return true;
       }
       // If a category is selected, go back to categories list
       if (selectedCategory) {
+        const savedOffset = categoriesScrollOffsetRef.current;
         setSelectedCategory(null);
         setSearchText('');
+        setTimeout(() => {
+          categoriesScrollRef.current?.scrollTo({ y: savedOffset, animated: false });
+        }, 100);
         return true;
       }
       // If on orders or profile tab, go back to categories
@@ -121,6 +134,21 @@ export default function App() {
             setSelectedProduct(product || null);
           } else {
             setSelectedProduct(null);
+            // Restore product list scroll if still in a category
+            if (previousState.selectedCategory) {
+              const savedOffset = categoryScrollOffsetRef.current;
+              setTimeout(() => {
+                categoryListRef.current?.scrollToOffset({ offset: savedOffset, animated: false });
+              }, 100);
+            }
+          }
+
+          // Restore categories home scroll if going back to categories home
+          if (!previousState.selectedCategory) {
+            const savedOffset = categoriesScrollOffsetRef.current;
+            setTimeout(() => {
+              categoriesScrollRef.current?.scrollTo({ y: savedOffset, animated: false });
+            }, 100);
           }
 
           return newStack;
@@ -155,7 +183,7 @@ export default function App() {
   const cartCount = cart.reduce((total, item) => total + item.quantity, 0);
   const cartTotal = cart.reduce((total, item) => total + item.quantity * item.price, 0);
 
-  function addToCart(product: Product) {
+  const addToCart = useCallback((product: Product) => {
     setCart((currentCart) => {
       const existingItem = currentCart.find((item) => item.id === product.id);
       if (existingItem) {
@@ -163,29 +191,55 @@ export default function App() {
       }
       return [...currentCart, { ...product, quantity: 1 }];
     });
-  }
+  }, []);
 
-  function changeQuantity(productId: string, change: number) {
+  const changeQuantity = useCallback((productId: string, change: number) => {
     setCart((currentCart) => currentCart
       .map((item) => item.id === productId ? { ...item, quantity: item.quantity + change } : item)
       .filter((item) => item.quantity > 0));
-  }
+  }, []);
 
-  function openCart() {
+  const openCart = useCallback(() => {
     setCartScreenOpen(true);
-  }
+  }, []);
 
-  function openCategory(categoryId: string) {
+  const openCategory = useCallback((categoryId: string) => {
     setPreviousCategory(selectedCategory);
     setSearchText('');
     setSelectedCategory(categoryId);
-  }
+  }, [selectedCategory]);
+
+  const handleCategoriesScroll = useCallback((offset: number) => {
+    categoriesScrollOffsetRef.current = offset;
+  }, []);
+
+  const handleCategoryScroll = useCallback((offset: number) => {
+    categoryScrollOffsetRef.current = offset;
+  }, []);
+
+  const handleOpenProduct = useCallback((product: Product) => {
+    setSelectedProduct(product);
+  }, []);
+
+  const handleCategoryBack = useCallback(() => {
+    const savedOffset = categoriesScrollOffsetRef.current;
+    setSelectedCategory(null);
+    setSearchText('');
+    categoryScrollOffsetRef.current = 0;
+    setTimeout(() => {
+      categoriesScrollRef.current?.scrollTo({ y: savedOffset, animated: false });
+    }, 100);
+  }, []);
 
   function goBackToPreviousPage() {
     if (cartScreenOpen) {
       setCartScreenOpen(false);
     } else if (selectedProduct) {
+      const savedOffset = categoryScrollOffsetRef.current;
       setSelectedProduct(null);
+      setTimeout(() => {
+        categoryListRef.current?.scrollToOffset({ offset: savedOffset, animated: false });
+      }, 100);
     } else if (selectedCategory) {
       setSelectedCategory(null);
       setSearchText('');
@@ -202,31 +256,42 @@ export default function App() {
     }
   }
 
-  const mainScreen = selectedProduct ? (
-    <ProductDetails product={selectedProduct} onBack={goBackToPreviousPage} onAdd={addToCart} onOpenCart={openCart} />
-  ) : activeTab === 'categories' && selectedCategory === null ? (
-    <CategoriesScreen
-      cartCount={cartCount}
-      onOpenCart={openCart}
-      onOpenCategory={openCategory}
-      searchText={searchText}
-      onSearchChange={setSearchText}
-    />
-  ) : activeTab === 'categories' && selectedCategory !== null ? (
-    <CategoryItemsScreen
-      products={visibleProducts}
-      searchText={searchText}
-      onSearchChange={setSearchText}
-      onBack={() => {
-        setSelectedCategory(null);
-        setSearchText('');
-      }}
-      onAdd={addToCart}
-      onOpen={setSelectedProduct}
-      onOpenCart={openCart}
-      cartCount={cartCount}
-      categoryName={categories.find((category) => category.id === selectedCategory)?.name ?? 'Products'}
-    />
+  const mainScreen = activeTab === 'categories' ? (
+    <View style={{ flex: 1 }}>
+      <View style={styles.screenLayer}>
+        <CategoriesScreen
+          cartCount={cartCount}
+          onOpenCart={openCart}
+          onOpenCategory={openCategory}
+          searchText={searchText}
+          onSearchChange={setSearchText}
+          scrollRef={categoriesScrollRef}
+          onScroll={handleCategoriesScroll}
+        />
+      </View>
+      {selectedCategory && (
+        <View style={[styles.screenLayer, styles.screenOnTop]}>
+          <CategoryItemsScreen
+            products={visibleProducts}
+            searchText={searchText}
+            onSearchChange={setSearchText}
+            onBack={handleCategoryBack}
+            onAdd={addToCart}
+            onOpen={handleOpenProduct}
+            onOpenCart={openCart}
+            cartCount={cartCount}
+            categoryName={categories.find((category) => category.id === selectedCategory)?.name ?? 'Products'}
+            listRef={categoryListRef}
+            onScroll={handleCategoryScroll}
+          />
+        </View>
+      )}
+      {selectedProduct && (
+        <View style={[styles.screenLayer, { zIndex: 2 }]}>
+          <ProductDetails product={selectedProduct} onBack={goBackToPreviousPage} onAdd={addToCart} onOpenCart={openCart} />
+        </View>
+      )}
+    </View>
   ) : activeTab === 'orders' ? (
     <OrdersScreen onBack={() => { setActiveTab('categories'); }} />
   ) : (
@@ -258,6 +323,8 @@ type CategoryItemsScreenProps = {
   onOpen: (product: Product) => void;
   onOpenCart: () => void;
   categoryName: string;
+  listRef: React.RefObject<FlatListType<Product>>;
+  onScroll: (offset: number) => void;
 };
 
 function TopHeader({ cartCount, onOpenCart, searchText, onSearchChange, searchPlaceholder }: { cartCount: number; onOpenCart: () => void; searchText: string; onSearchChange: (text: string) => void; searchPlaceholder: string; }) {
@@ -298,7 +365,7 @@ function TopHeader({ cartCount, onOpenCart, searchText, onSearchChange, searchPl
   );
 }
 
-function CategoriesScreen({ cartCount, onOpenCart, onOpenCategory, searchText, onSearchChange }: { cartCount: number; onOpenCart: () => void; onOpenCategory: (categoryId: string) => void; searchText: string; onSearchChange: (text: string) => void; }) {
+function CategoriesScreen({ cartCount, onOpenCart, onOpenCategory, searchText, onSearchChange, scrollRef, onScroll }: { cartCount: number; onOpenCart: () => void; onOpenCategory: (categoryId: string) => void; searchText: string; onSearchChange: (text: string) => void; scrollRef: React.RefObject<ScrollViewType>; onScroll: (offset: number) => void; }) {
   const visibleSections = categorySections
     .map((section) => {
       const items = section.categoryIds
@@ -314,7 +381,13 @@ function CategoriesScreen({ cartCount, onOpenCart, onOpenCategory, searchText, o
     <View style={styles.page}>
       <TopHeader cartCount={cartCount} onOpenCart={onOpenCart} searchText={searchText} onSearchChange={onSearchChange} searchPlaceholder="Search products..." />
 
-      <ScrollView contentContainerStyle={styles.categorySections} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.categorySections}
+        showsVerticalScrollIndicator={false}
+        onScroll={(event) => onScroll(event.nativeEvent.contentOffset.y)}
+        scrollEventThrottle={16}
+      >
         {visibleSections.length === 0 && <Text style={styles.emptyText}>No categories match your search.</Text>}
 
         {visibleSections.map((section) => {
@@ -348,7 +421,7 @@ function CategoriesScreen({ cartCount, onOpenCart, onOpenCategory, searchText, o
   );
 }
 
-function CategoryItemsScreen(props: CategoryItemsScreenProps) {
+const CategoryItemsScreen = memo(function CategoryItemsScreen(props: CategoryItemsScreenProps) {
   return (
     <View style={styles.page}>
       <TopHeader cartCount={props.cartCount} onOpenCart={props.onOpenCart} searchText={props.searchText} onSearchChange={props.onSearchChange} searchPlaceholder={`Search ${props.categoryName.toLowerCase()}...`} />
@@ -362,6 +435,7 @@ function CategoryItemsScreen(props: CategoryItemsScreenProps) {
       </View>
 
       <FlatList
+        ref={props.listRef}
         data={props.products}
         keyExtractor={(item) => item.id}
         numColumns={2}
@@ -369,10 +443,12 @@ function CategoryItemsScreen(props: CategoryItemsScreenProps) {
         contentContainerStyle={styles.productList}
         renderItem={({ item }) => <ProductCard product={item} onAdd={props.onAdd} onOpen={props.onOpen} />}
         ListEmptyComponent={<Text style={styles.emptyText}>No items match your search.</Text>}
+        onScroll={(event) => props.onScroll(event.nativeEvent.contentOffset.y)}
+        scrollEventThrottle={16}
       />
     </View>
   );
-}
+});
 
 function CartScreen({ cart, total, onChangeQuantity, onBack }: { cart: CartItem[]; total: number; onChangeQuantity: (id: string, change: number) => void; onBack: () => void }) {
   if (cart.length === 0) {
@@ -426,29 +502,26 @@ function CartScreen({ cart, total, onChangeQuantity, onBack }: { cart: CartItem[
 
 function ProductDetails({ product, onBack, onAdd, onOpenCart }: { product: Product; onBack: () => void; onAdd: (product: Product) => void; onOpenCart: () => void }) {
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="dark" />
-      <View style={styles.page}>
-        <View style={styles.detailHeader}>
-          <Pressable onPress={onBack} style={styles.backButton}><Text style={styles.backText}>‹</Text></Pressable>
-          <Text style={styles.title}>Product details</Text>
-          <Pressable onPress={onOpenCart}><Text style={styles.cartIcon}>🛒</Text></Pressable>
-        </View>
-
-        <View style={[styles.detailImage, { backgroundColor: product.color }]}><Text style={styles.detailEmoji}>{product.emoji}</Text></View>
-        <Text style={styles.detailName}>{product.name}</Text>
-        <Text style={styles.unit}>{product.unit}</Text>
-        <Text style={styles.detailRating}>★ {product.rating} rating</Text>
-        <Text style={styles.description}>{product.description}</Text>
-
-        <View style={styles.detailFooter}>
-          <Text style={styles.detailPrice}>₹{product.price}</Text>
-          <Pressable onPress={() => onAdd(product)} style={styles.detailAddButton}>
-            <Text style={styles.checkoutText}>Add to cart</Text>
-          </Pressable>
-        </View>
+    <View style={styles.page}>
+      <View style={styles.detailHeader}>
+        <Pressable onPress={onBack} style={styles.backButton}><Text style={styles.backText}>‹</Text></Pressable>
+        <Text style={styles.title}>Product details</Text>
+        <Pressable onPress={onOpenCart}><Text style={styles.cartIcon}>🛒</Text></Pressable>
       </View>
-    </SafeAreaView>
+
+      <View style={[styles.detailImage, { backgroundColor: product.color }]}><Text style={styles.detailEmoji}>{product.emoji}</Text></View>
+      <Text style={styles.detailName}>{product.name}</Text>
+      <Text style={styles.unit}>{product.unit}</Text>
+      <Text style={styles.detailRating}>★ {product.rating} rating</Text>
+      <Text style={styles.description}>{product.description}</Text>
+
+      <View style={styles.detailFooter}>
+        <Text style={styles.detailPrice}>₹{product.price}</Text>
+        <Pressable onPress={() => onAdd(product)} style={styles.detailAddButton}>
+          <Text style={styles.checkoutText}>Add to cart</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -521,6 +594,8 @@ function BottomNavigation({ activeTab, onChange }: { activeTab: Tab; onChange: (
 const styles = StyleSheet.create({
   safeArea: { backgroundColor: '#F2F6EE', flex: 1, paddingTop: Platform.OS === 'android' ? (NativeStatusBar.currentHeight ?? 24) : 0 },
   page: { backgroundColor: '#F8F5F0', flex: 1, paddingHorizontal: 18 },
+  screenLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#F8F5F0' },
+  screenOnTop: { zIndex: 1 },
   header: { backgroundColor: '#283933', borderRadius: 18, marginTop: 12, paddingHorizontal: 12, paddingVertical: 12 },
   headerRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   brandBox: { alignItems: 'center', backgroundColor: '#F7F3E7', borderRadius: 12, flexDirection: 'row', paddingHorizontal: 10, paddingVertical: 8 },
