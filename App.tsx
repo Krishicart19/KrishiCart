@@ -21,6 +21,7 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [previousCategory, setPreviousCategory] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
+  const [searchCategory, setSearchCategory] = useState('all');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cartScreenOpen, setCartScreenOpen] = useState(false);
@@ -207,10 +208,16 @@ export default function App() {
   ) : activeTab === 'categories' && selectedCategory === null ? (
     <CategoriesScreen
       cartCount={cartCount}
+      cart={cart}
       onOpenCart={openCart}
       onOpenCategory={openCategory}
       searchText={searchText}
       onSearchChange={setSearchText}
+      searchCategory={searchCategory}
+      onCategorySelect={setSearchCategory}
+      onAddToCart={addToCart}
+      onChangeQuantity={changeQuantity}
+      onOpenProduct={setSelectedProduct}
     />
   ) : activeTab === 'categories' && selectedCategory !== null ? (
     <CategoryItemsScreen
@@ -264,7 +271,10 @@ type CategoryItemsScreenProps = {
   categoryName: string;
 };
 
-function TopHeader({ cartCount, onOpenCart, searchText, onSearchChange, searchPlaceholder }: { cartCount: number; onOpenCart: () => void; searchText: string; onSearchChange: (text: string) => void; searchPlaceholder: string; }) {
+function TopHeader({ cartCount, onOpenCart, searchText, onSearchChange, searchCategory, onCategorySelect, showCategoryDropdown }: { cartCount: number; onOpenCart: () => void; searchText: string; onSearchChange: (text: string) => void; searchCategory: string; onCategorySelect: (categoryId: string) => void; showCategoryDropdown?: boolean; }) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const selectedCategoryName = searchCategory === 'all' ? 'All' : categories.find((c) => c.id === searchCategory)?.name || 'All';
+
   return (
     <View style={styles.header}>
       <View style={styles.headerRow}>
@@ -286,23 +296,68 @@ function TopHeader({ cartCount, onOpenCart, searchText, onSearchChange, searchPl
       </View>
 
       <View style={styles.searchWrap}>
-        <Text style={styles.searchScope}>All</Text>
-        <TextInput
-          value={searchText}
-          onChangeText={onSearchChange}
-          placeholder={searchPlaceholder}
-          placeholderTextColor="#89968E"
-          style={styles.searchInput}
-        />
+        {showCategoryDropdown !== false && (
+          <Pressable onPress={() => setDropdownOpen(!dropdownOpen)} style={styles.searchScope}>
+            <Text style={styles.searchScopeText}>{selectedCategoryName}</Text>
+            <Text style={styles.searchScopeArrow}>▾</Text>
+          </Pressable>
+        )}
+        <View style={styles.searchInputWrap}>
+          <TextInput
+            value={searchText}
+            onChangeText={onSearchChange}
+            placeholder="Search products or categories..."
+            placeholderTextColor="#89968E"
+            style={styles.searchInput}
+          />
+          {searchText.length > 0 && (
+            <Pressable onPress={() => onSearchChange('')} style={styles.searchClear}>
+              <Text style={styles.searchClearText}>×</Text>
+            </Pressable>
+          )}
+        </View>
         <Pressable style={styles.searchButton}>
-          <Text style={styles.searchButtonText}>⌕</Text>
+          <Text style={styles.searchButtonText}>🔍</Text>
         </Pressable>
       </View>
+
+      {dropdownOpen && (
+        <View style={styles.categoryDropdown}>
+          <Pressable
+            onPress={() => { onCategorySelect('all'); setDropdownOpen(false); }}
+            style={[styles.categoryDropdownItem, searchCategory === 'all' && styles.categoryDropdownItemActive]}
+          >
+            <Text style={styles.categoryDropdownText}>All Categories</Text>
+          </Pressable>
+          {categories.filter((c) => c.id !== 'all').map((category) => (
+            <Pressable
+              key={category.id}
+              onPress={() => { onCategorySelect(category.id); setDropdownOpen(false); }}
+              style={[styles.categoryDropdownItem, searchCategory === category.id && styles.categoryDropdownItemActive]}
+            >
+              <Text style={styles.categoryDropdownIcon}>{category.icon}</Text>
+              <Text style={styles.categoryDropdownText}>{category.name}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
 
-function CategoriesScreen({ cartCount, onOpenCart, onOpenCategory, searchText, onSearchChange }: { cartCount: number; onOpenCart: () => void; onOpenCategory: (categoryId: string) => void; searchText: string; onSearchChange: (text: string) => void; }) {
+function CategoriesScreen({ cartCount, cart, onOpenCart, onOpenCategory, searchText, onSearchChange, searchCategory, onCategorySelect, onAddToCart, onChangeQuantity, onOpenProduct }: { cartCount: number; cart: CartItem[]; onOpenCart: () => void; onOpenCategory: (categoryId: string) => void; searchText: string; onSearchChange: (text: string) => void; searchCategory: string; onCategorySelect: (categoryId: string) => void; onAddToCart: (product: Product) => void; onChangeQuantity: (productId: string, change: number) => void; onOpenProduct: (product: Product) => void; }) {
+  const searchingProducts = searchText.trim().length > 0;
+
+  const matchingProducts = searchingProducts
+    ? products.filter((product) => {
+        const searchWords = searchText.toLowerCase().split(/\s+/).filter((w) => w.length > 0);
+        const productText = (product.name + ' ' + product.description).toLowerCase();
+        const textMatches = searchWords.every((word) => productText.includes(word));
+        const categoryMatches = searchCategory === 'all' || product.categoryId === searchCategory;
+        return textMatches && categoryMatches;
+      })
+    : [];
+
   const visibleSections = categorySections
     .map((section) => {
       const items = section.categoryIds
@@ -314,14 +369,43 @@ function CategoriesScreen({ cartCount, onOpenCart, onOpenCategory, searchText, o
     })
     .filter((section) => section.items.length > 0);
 
+  const getQuantity = (productId: string) => {
+    const cartItem = cart.find((item) => item.id === productId);
+    return cartItem ? cartItem.quantity : 0;
+  };
+
   return (
     <View style={styles.page}>
-      <TopHeader cartCount={cartCount} onOpenCart={onOpenCart} searchText={searchText} onSearchChange={onSearchChange} searchPlaceholder="Search products..." />
+      <TopHeader cartCount={cartCount} onOpenCart={onOpenCart} searchText={searchText} onSearchChange={onSearchChange} searchCategory={searchCategory} onCategorySelect={onCategorySelect} />
 
       <ScrollView contentContainerStyle={styles.categorySections} showsVerticalScrollIndicator={false}>
-        {visibleSections.length === 0 && <Text style={styles.emptyText}>No categories match your search.</Text>}
+        {searchingProducts && matchingProducts.length > 0 && (
+          <View style={styles.categorySection}>
+            <View style={styles.searchResultHeader}>
+              <Pressable onPress={() => onSearchChange('')} style={styles.backButton}>
+                <Text style={styles.backText}>‹</Text>
+              </Pressable>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sectionTitle}>Products</Text>
+                <Text style={styles.resultCount}>{matchingProducts.length} items found</Text>
+              </View>
+            </View>
+            <View style={styles.productGridWrap}>
+              {matchingProducts.map((item) => (
+                <ProductCard
+                  key={item.id}
+                  product={item}
+                  quantity={getQuantity(item.id)}
+                  onAdd={onAddToCart}
+                  onChangeQuantity={onChangeQuantity}
+                  onOpen={onOpenProduct}
+                />
+              ))}
+            </View>
+          </View>
+        )}
 
-        {visibleSections.map((section) => {
+        {!searchingProducts && visibleSections.map((section) => {
           const rows = [] as typeof section.items[];
           for (let index = 0; index < section.items.length; index += 3) {
             rows.push(section.items.slice(index, index + 3));
@@ -347,6 +431,10 @@ function CategoriesScreen({ cartCount, onOpenCart, onOpenCategory, searchText, o
             </View>
           );
         })}
+
+        {searchingProducts && matchingProducts.length === 0 && visibleSections.length === 0 && (
+          <Text style={styles.emptyText}>No products or categories match your search.</Text>
+        )}
       </ScrollView>
     </View>
   );
@@ -360,7 +448,7 @@ function CategoryItemsScreen(props: CategoryItemsScreenProps) {
 
   return (
     <View style={styles.page}>
-      <TopHeader cartCount={props.cartCount} onOpenCart={props.onOpenCart} searchText={props.searchText} onSearchChange={props.onSearchChange} searchPlaceholder={`Search ${props.categoryName.toLowerCase()}...`} />
+      <TopHeader cartCount={props.cartCount} onOpenCart={props.onOpenCart} searchText={props.searchText} onSearchChange={props.onSearchChange} searchCategory="all" onCategorySelect={() => {}} showCategoryDropdown={false} />
       <View style={styles.detailHeader}>
         <Pressable onPress={props.onBack} style={styles.backButton}><Text style={styles.backText}>‹</Text></Pressable>
         <View style={{ flex: 1 }}>
@@ -553,6 +641,7 @@ const styles = StyleSheet.create({
   categoryIntro: { color: '#8ca796', fontSize: 15, lineHeight: 22, marginBottom: 20, marginTop: 22 },
   categorySections: { paddingBottom: 120, paddingTop: 12 },
   categorySection: { marginBottom: 22 },
+  productGridWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 12 },
   sectionTitle: { color: '#1D2B27', fontSize: 22, fontWeight: '800', marginBottom: 14 },
   categoryGridRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', rowGap: 12 },
   categoryCard: { alignItems: 'center', backgroundColor: '#DCEEF1', borderRadius: 22, justifyContent: 'center', margin: 3, paddingHorizontal: 6, paddingVertical: 12, width: '31.5%' },
@@ -565,11 +654,22 @@ const styles = StyleSheet.create({
   cartBadge: { backgroundColor: '#FFFFFF', borderRadius: 15, padding: 9, position: 'relative' },
   cartIcon: { fontSize: 20 },
   cartCount: { backgroundColor: '#D94C34', borderColor: '#FFFFFF', borderRadius: 10, borderWidth: 1, color: '#FFFFFF', fontSize: 10, fontWeight: '800', minWidth: 18, paddingHorizontal: 4, paddingVertical: 2, position: 'absolute', right: -7, textAlign: 'center', top: -7 },
-  searchWrap: { alignItems: 'center', backgroundColor: '#EEF4EC', borderRadius: 12, flexDirection: 'row', marginTop: 12, overflow: 'hidden' },
-  searchScope: { backgroundColor: '#E8F3E0', color: '#173B2B', fontSize: 12, fontWeight: '700', paddingHorizontal: 12, paddingVertical: 14 },
-  searchInput: { backgroundColor: '#FFFFFF', color: '#173B2B', flex: 1, fontSize: 14, paddingHorizontal: 12, paddingVertical: 12 },
-  searchButton: { alignItems: 'center', backgroundColor: '#F59E0B', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 12 },
-  searchButtonText: { color: '#111827', fontSize: 22, fontWeight: '700' },
+  searchWrap: { alignItems: 'stretch', borderRadius: 12, flexDirection: 'row', marginTop: 12, overflow: 'hidden' },
+  searchScope: { alignItems: 'center', backgroundColor: '#E8F3E0', flexDirection: 'row', gap: 4, paddingHorizontal: 12 },
+  searchScopeText: { color: '#173B2B', fontSize: 13, fontWeight: '700' },
+  searchScopeArrow: { color: '#173B2B', fontSize: 10 },
+  searchInputWrap: { alignItems: 'center', backgroundColor: '#FFFFFF', flex: 1, flexDirection: 'row' },
+  searchInput: { color: '#173B2B', flex: 1, fontSize: 14, paddingLeft: 14, paddingRight: 8, paddingVertical: 12 },
+  searchButton: { alignItems: 'center', backgroundColor: '#F59E0B', justifyContent: 'center', paddingHorizontal: 18 },
+  searchButtonText: { fontSize: 18 },
+  searchClear: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  searchClearText: { color: '#999999', fontSize: 20, fontWeight: '300' },
+  categoryDropdown: { backgroundColor: '#FFFFFF', borderRadius: 12, marginTop: 8, maxHeight: 300, overflow: 'scroll', padding: 8 },
+  categoryDropdownItem: { alignItems: 'center', borderRadius: 8, flexDirection: 'row', gap: 10, paddingHorizontal: 12, paddingVertical: 10 },
+  categoryDropdownItemActive: { backgroundColor: '#E8F3E0' },
+  categoryDropdownIcon: { fontSize: 18 },
+  categoryDropdownText: { color: '#173B2B', fontSize: 14, fontWeight: '500' },
+  searchResultHeader: { alignItems: 'center', flexDirection: 'row', gap: 12, marginBottom: 8 },
   productList: { paddingBottom: 140, paddingTop: 12 },
   productRow: { gap: '4%', justifyContent: 'space-between' },
   sectionHeading: { alignItems: 'flex-end', flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 },
