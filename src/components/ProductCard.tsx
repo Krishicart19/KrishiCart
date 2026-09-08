@@ -4,11 +4,13 @@ import { Product } from '../types/catalog';
 
 type ProductCardProps = {
   product: Product;
+  quantity: number;
   onAdd: (product: Product) => void;
+  onChangeQuantity: (productId: string, change: number) => void;
   onOpen: (product: Product) => void;
 };
 
-export function ProductCard({ product, onAdd, onOpen }: ProductCardProps) {
+export function ProductCard({ product, quantity, onAdd, onChangeQuantity, onOpen }: ProductCardProps) {
   return (
     <Pressable onPress={() => onOpen(product)} style={styles.card}>
       <View style={[styles.imagePlaceholder, { backgroundColor: product.color }]}>
@@ -21,9 +23,21 @@ export function ProductCard({ product, onAdd, onOpen }: ProductCardProps) {
       </View>
       <View style={styles.footer}>
         <Text style={styles.price}>₹{product.price}</Text>
-        <Pressable onPress={() => onAdd(product)} style={styles.addButton}>
-          <Text style={styles.addButtonText}>Add</Text>
-        </Pressable>
+        {quantity > 0 ? (
+          <View style={styles.quantityControl}>
+            <Pressable onPress={() => onChangeQuantity(product.id, -1)} style={styles.quantityButton}>
+              <Text style={styles.quantityButtonText}>−</Text>
+            </Pressable>
+            <Text style={styles.quantity}>{quantity}</Text>
+            <Pressable onPress={() => onChangeQuantity(product.id, 1)} style={styles.quantityButton}>
+              <Text style={styles.quantityButtonText}>+</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable onPress={() => onAdd(product)} style={styles.addButton}>
+            <Text style={styles.addButtonText}>Add</Text>
+          </Pressable>
+        )}
       </View>
     </Pressable>
   );
@@ -41,5 +55,9 @@ const styles = StyleSheet.create({
   price: { color: '#173B2B', fontSize: 16, fontWeight: '800' },
   addButton: { backgroundColor: '#1D7A46', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 },
   addButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  quantityControl: { alignItems: 'center', flexDirection: 'row', gap: 4 },
+  quantityButton: { alignItems: 'center', backgroundColor: '#E8F0EA', borderRadius: 8, height: 32, justifyContent: 'center', width: 32 },
+  quantityButtonText: { color: '#173B2B', fontSize: 18, fontWeight: '600' },
+  quantity: { color: '#173B2B', fontSize: 15, fontWeight: '700', minWidth: 24, textAlign: 'center' },
 });
 
