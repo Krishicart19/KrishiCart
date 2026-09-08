@@ -274,9 +274,11 @@ export default function App() {
           <CategoryItemsScreen
             products={visibleProducts}
             searchText={searchText}
+            cart={cart}
             onSearchChange={setSearchText}
             onBack={handleCategoryBack}
             onAdd={addToCart}
+            onChangeQuantity={changeQuantity}
             onOpen={handleOpenProduct}
             onOpenCart={openCart}
             cartCount={cartCount}
@@ -317,9 +319,11 @@ type CategoryItemsScreenProps = {
   products: Product[];
   searchText: string;
   cartCount: number;
+  cart: CartItem[];
   onSearchChange: (text: string) => void;
   onBack: () => void;
   onAdd: (product: Product) => void;
+  onChangeQuantity: (productId: string, change: number) => void;
   onOpen: (product: Product) => void;
   onOpenCart: () => void;
   categoryName: string;
@@ -422,6 +426,11 @@ function CategoriesScreen({ cartCount, onOpenCart, onOpenCategory, searchText, o
 }
 
 const CategoryItemsScreen = memo(function CategoryItemsScreen(props: CategoryItemsScreenProps) {
+  const getQuantity = (productId: string) => {
+    const cartItem = props.cart.find((item) => item.id === productId);
+    return cartItem ? cartItem.quantity : 0;
+  };
+
   return (
     <View style={styles.page}>
       <TopHeader cartCount={props.cartCount} onOpenCart={props.onOpenCart} searchText={props.searchText} onSearchChange={props.onSearchChange} searchPlaceholder={`Search ${props.categoryName.toLowerCase()}...`} />
@@ -441,7 +450,15 @@ const CategoryItemsScreen = memo(function CategoryItemsScreen(props: CategoryIte
         numColumns={2}
         columnWrapperStyle={styles.productRow}
         contentContainerStyle={styles.productList}
-        renderItem={({ item }) => <ProductCard product={item} onAdd={props.onAdd} onOpen={props.onOpen} />}
+        renderItem={({ item }) => (
+          <ProductCard
+            product={item}
+            quantity={getQuantity(item.id)}
+            onAdd={props.onAdd}
+            onChangeQuantity={props.onChangeQuantity}
+            onOpen={props.onOpen}
+          />
+        )}
         ListEmptyComponent={<Text style={styles.emptyText}>No items match your search.</Text>}
         onScroll={(event) => props.onScroll(event.nativeEvent.contentOffset.y)}
         scrollEventThrottle={16}
