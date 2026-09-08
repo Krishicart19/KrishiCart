@@ -177,7 +177,8 @@ export default function App() {
 
   const visibleProducts = useMemo(() => products.filter((product) => {
     const categoryMatches = selectedCategory === null || product.categoryId === selectedCategory;
-    const textMatches = product.name.toLowerCase().includes(searchText.toLowerCase());
+    const trimmedSearch = searchText.trim().toLowerCase();
+    const textMatches = trimmedSearch.length === 0 || product.name.toLowerCase().includes(trimmedSearch);
     return categoryMatches && textMatches;
   }), [searchText, selectedCategory]);
 
@@ -429,7 +430,7 @@ function CategoriesScreen({ cartCount, cart, onOpenCart, onOpenCategory, searchT
       const items = section.categoryIds
         .map((categoryId) => categories.find((category) => category.id === categoryId))
         .filter((category): category is (typeof categories)[number] => Boolean(category))
-        .filter((category) => category.name.toLowerCase().includes(searchText.toLowerCase()));
+        .filter((category) => searchText.trim().length === 0 || category.name.toLowerCase().includes(searchText.trim().toLowerCase()));
 
       return { ...section, items };
     })
