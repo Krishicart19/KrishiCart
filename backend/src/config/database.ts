@@ -3,8 +3,10 @@ import { DataSource } from 'typeorm';
 import { Category } from '../entities/Category';
 import { Product } from '../entities/Product';
 import { CartItem } from '../entities/CartItem';
+import { User } from '../entities/User';
 import { CreateTables1726600000000 } from '../migrations/1726600000000-CreateTables';
 import { SeedData1726600000001 } from '../migrations/1726600000001-SeedData';
+import { CreateUsersTable1726600000002 } from '../migrations/1726600000002-CreateUsersTable';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -15,8 +17,8 @@ export const AppDataSource = new DataSource({
   database: process.env.DB_NAME || 'krishicart',
   synchronize: false,
   logging: process.env.NODE_ENV === 'development',
-  entities: [Category, Product, CartItem],
-  migrations: [CreateTables1726600000000, SeedData1726600000001],
+  entities: [Category, Product, CartItem, User],
+  migrations: [CreateTables1726600000000, SeedData1726600000001, CreateUsersTable1726600000002],
   migrationsTableName: 'typeorm_migrations',
 });
 

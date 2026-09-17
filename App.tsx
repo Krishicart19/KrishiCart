@@ -6,6 +6,9 @@ import type { FlatList as FlatListType, ScrollView as ScrollViewType } from 'rea
 import { ProductCard } from './src/components/ProductCard';
 import { api } from './src/api';
 import { CartItem, Category, Product } from './src/types/catalog';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { SignInScreen } from './src/screens/SignInScreen';
+import { SignUpScreen } from './src/screens/SignUpScreen';
 
 type Tab = 'categories' | 'orders' | 'profile';
 
@@ -17,7 +20,7 @@ const categorySections = [
   { title: 'Plumbing, Sanitary & Bath', categoryIds: ['cpvc', 'apvc', 'pvc', 'overhead-tanks', 'pumps-motors', 'sanitary'] },
 ];
 
-export default function App() {
+function MainApp() {
   const [activeTab, setActiveTab] = useState<Tab>('categories');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [previousCategory, setPreviousCategory] = useState<string | null>(null);
@@ -707,21 +710,71 @@ function OrdersScreen({ onBack }: { onBack: () => void }) {
 }
 
 function ProfileScreen({ onBack }: { onBack: () => void }) {
+  const { user, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to sign out?')) {
+        await signOut();
+      }
+    } else {
+      Alert.alert(
+        'Sign Out',
+        'Are you sure you want to sign out?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign Out', style: 'destructive', onPress: () => signOut() },
+        ]
+      );
+    }
+  };
+
+  const getInitials = (name: string) => {
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
   return (
-    <View style={[styles.page, styles.profilePage]}>
+    <ScrollView style={[styles.page, styles.profilePage]} contentContainerStyle={{ paddingBottom: 100 }}>
       <View style={styles.detailHeader}>
         <Pressable onPress={onBack} style={styles.backButton}><Text style={styles.backText}>‹</Text></Pressable>
         <Text style={styles.title}>Profile</Text>
         <View style={{ width: 36 }} />
       </View>
-      <View style={styles.avatar}><Text style={styles.avatarText}>K</Text></View>
-      <Text style={[styles.title, { marginTop: 16 }]}>Welcome to KrishiCart</Text>
-      <Text style={styles.mutedText}>Login and account settings will be built in the next frontend step.</Text>
-      <View style={styles.infoCard}>
-        <Text style={styles.infoCardTitle}>What is ready?</Text>
-        <Text style={styles.infoCardText}>✓ Category browsing{`\n`}✓ Category item lists{`\n`}✓ Local shopping cart{`\n`}○ Login screen (next){`\n`}○ API connection (later)</Text>
+
+      <View style={styles.avatar}>
+        <Text style={styles.avatarText}>{user ? getInitials(user.fullName) : 'K'}</Text>
       </View>
-    </View>
+      <Text style={[styles.title, { marginTop: 16, textAlign: 'center' }]}>{user?.fullName || 'Guest'}</Text>
+      <Text style={[styles.mutedText, { textAlign: 'center' }]}>{user?.email || ''}</Text>
+
+      <View style={[styles.infoCard, { marginTop: 24 }]}>
+        <Text style={styles.infoCardTitle}>Contact Information</Text>
+        <View style={styles.profileRow}>
+          <Text style={styles.profileLabel}>Mobile</Text>
+          <Text style={styles.profileValue}>{user?.mobileNumber || '-'}</Text>
+        </View>
+        <View style={styles.profileRow}>
+          <Text style={styles.profileLabel}>Email</Text>
+          <Text style={styles.profileValue}>{user?.email || '-'}</Text>
+        </View>
+      </View>
+
+      <View style={styles.infoCard}>
+        <Text style={styles.infoCardTitle}>Delivery Address</Text>
+        <View style={styles.profileRow}>
+          <Text style={styles.profileLabel}>Address</Text>
+          <Text style={styles.profileValue}>{user?.address || '-'}</Text>
+        </View>
+        <View style={styles.profileRow}>
+          <Text style={styles.profileLabel}>PIN Code</Text>
+          <Text style={styles.profileValue}>{user?.pinCode || '-'}</Text>
+        </View>
+      </View>
+
+      <Pressable style={styles.signOutButton} onPress={handleSignOut}>
+        <Text style={styles.signOutText}>Sign Out</Text>
+      </Pressable>
+    </ScrollView>
   );
 }
 
@@ -741,6 +794,43 @@ function BottomNavigation({ activeTab, onChange }: { activeTab: Tab; onChange: (
         </Pressable>
       ))}
     </View>
+  );
+}
+
+function AppContent() {
+  const { isAuthenticated, isLoading } = useAuth();
+  const [authScreen, setAuthScreen] = useState<'signin' | 'signup'>('signin');
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={[styles.safeArea, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#2E7D32" />
+        <Text style={styles.loadingText}>Loading...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        {authScreen === 'signin' ? (
+          <SignInScreen onSwitchToSignUp={() => setAuthScreen('signup')} />
+        ) : (
+          <SignUpScreen onSwitchToSignIn={() => setAuthScreen('signin')} />
+        )}
+      </SafeAreaView>
+    );
+  }
+
+  return <MainApp />;
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 
@@ -829,7 +919,7 @@ const styles = StyleSheet.create({
   detailPrice: { color: '#173B2B', fontSize: 28, fontWeight: '800' },
   detailAddButton: { alignItems: 'center', backgroundColor: '#173B2B', borderRadius: 12, paddingHorizontal: 18, paddingVertical: 12 },
   profilePage: { paddingTop: 18 },
-  avatar: { alignItems: 'center', backgroundColor: '#DCEDE1', borderRadius: 40, height: 80, justifyContent: 'center', marginBottom: 16, width: 80 },
+  avatar: { alignItems: 'center', alignSelf: 'center', backgroundColor: '#DCEDE1', borderRadius: 40, height: 80, justifyContent: 'center', marginBottom: 16, width: 80 },
   avatarText: { color: '#173B2B', fontSize: 28, fontWeight: '800' },
   infoCard: { backgroundColor: '#FFFFFF', borderRadius: 16, marginTop: 18, padding: 16 },
   infoCardTitle: { color: '#173B2B', fontSize: 15, fontWeight: '800', marginBottom: 4 },
@@ -841,4 +931,9 @@ const styles = StyleSheet.create({
   navActive: { color: '#173B2B', fontWeight: '700' },
   loadingText: { color: '#173B2B', fontSize: 16, marginTop: 16 },
   errorEmoji: { fontSize: 48, marginBottom: 12 },
+  profileRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  profileLabel: { color: '#738078', fontSize: 14 },
+  profileValue: { color: '#173B2B', fontSize: 14, fontWeight: '600', flex: 1, textAlign: 'right' },
+  signOutButton: { backgroundColor: '#FFE5E5', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 24, marginHorizontal: 0 },
+  signOutText: { color: '#D94C34', fontSize: 16, fontWeight: '700' },
 });
