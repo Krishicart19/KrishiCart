@@ -1,11 +1,11 @@
 ﻿import { StatusBar } from 'expo-status-bar';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, BackHandler, FlatList, Platform, Pressable, SafeAreaView, ScrollView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, FlatList, Platform, Pressable, SafeAreaView, ScrollView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { FlatList as FlatListType, ScrollView as ScrollViewType } from 'react-native';
 
 import { ProductCard } from './src/components/ProductCard';
-import { categories, products } from './src/data/catalog';
-import { CartItem, Product } from './src/types/catalog';
+import { api } from './src/api';
+import { CartItem, Category, Product } from './src/types/catalog';
 
 type Tab = 'categories' | 'orders' | 'profile';
 
@@ -41,6 +41,32 @@ export default function App() {
     selectedProduct: null,
     cartScreenOpen: false,
   }]);
+
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [categoriesData, productsData] = await Promise.all([
+          api.getCategories(),
+          api.getProducts(),
+        ]);
+        setCategories(categoriesData);
+        setProducts(productsData);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   // Handle Android back button
   useEffect(() => {
@@ -275,6 +301,8 @@ export default function App() {
           onOpenProduct={setSelectedProduct}
           scrollRef={categoriesScrollRef}
           onScroll={handleCategoriesScroll}
+          categories={categories}
+          products={products}
         />
       </View>
       {selectedCategory && (
@@ -308,6 +336,26 @@ export default function App() {
     <ProfileScreen onBack={() => { setActiveTab('categories'); }} />
   );
 
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.safeArea, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#2E7D32" />
+        <Text style={styles.loadingText}>Loading KrishiCart...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={[styles.safeArea, styles.centerContent]}>
+        <Text style={styles.errorEmoji}>⚠️</Text>
+        <Text style={styles.sectionTitle}>Connection Error</Text>
+        <Text style={styles.mutedText}>{error}</Text>
+        <Text style={styles.mutedText}>Make sure the backend server is running.</Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
@@ -339,7 +387,7 @@ type CategoryItemsScreenProps = {
   onScroll: (offset: number) => void;
 };
 
-function TopHeader({ cartCount, onOpenCart, searchText, onSearchChange, searchCategory, onCategorySelect, showCategoryDropdown }: { cartCount: number; onOpenCart: () => void; searchText: string; onSearchChange: (text: string) => void; searchCategory: string; onCategorySelect: (categoryId: string) => void; showCategoryDropdown?: boolean; }) {
+function TopHeader({ cartCount, onOpenCart, searchText, onSearchChange, searchCategory, onCategorySelect, showCategoryDropdown, categories = [] }: { cartCount: number; onOpenCart: () => void; searchText: string; onSearchChange: (text: string) => void; searchCategory: string; onCategorySelect: (categoryId: string) => void; showCategoryDropdown?: boolean; categories?: Category[]; }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const selectedCategoryName = searchCategory === 'all' ? 'All' : categories.find((c) => c.id === searchCategory)?.name || 'All';
 
@@ -413,7 +461,7 @@ function TopHeader({ cartCount, onOpenCart, searchText, onSearchChange, searchCa
   );
 }
 
-function CategoriesScreen({ cartCount, cart, onOpenCart, onOpenCategory, searchText, onSearchChange, searchCategory, onCategorySelect, onAddToCart, onChangeQuantity, onOpenProduct, scrollRef, onScroll }: { cartCount: number; cart: CartItem[]; onOpenCart: () => void; onOpenCategory: (categoryId: string) => void; searchText: string; onSearchChange: (text: string) => void; searchCategory: string; onCategorySelect: (categoryId: string) => void; onAddToCart: (product: Product) => void; onChangeQuantity: (productId: string, change: number) => void; onOpenProduct: (product: Product) => void; scrollRef: React.RefObject<ScrollViewType | null>; onScroll: (offset: number) => void; }) {
+function CategoriesScreen({ cartCount, cart, onOpenCart, onOpenCategory, searchText, onSearchChange, searchCategory, onCategorySelect, onAddToCart, onChangeQuantity, onOpenProduct, scrollRef, onScroll, categories, products }: { cartCount: number; cart: CartItem[]; onOpenCart: () => void; onOpenCategory: (categoryId: string) => void; searchText: string; onSearchChange: (text: string) => void; searchCategory: string; onCategorySelect: (categoryId: string) => void; onAddToCart: (product: Product) => void; onChangeQuantity: (productId: string, change: number) => void; onOpenProduct: (product: Product) => void; scrollRef: React.RefObject<ScrollViewType | null>; onScroll: (offset: number) => void; categories: Category[]; products: Product[]; }) {
   const searchingProducts = searchText.trim().length > 0;
 
   const matchingProducts = searchingProducts
@@ -443,7 +491,7 @@ function CategoriesScreen({ cartCount, cart, onOpenCart, onOpenCategory, searchT
 
   return (
     <View style={styles.page}>
-      <TopHeader cartCount={cartCount} onOpenCart={onOpenCart} searchText={searchText} onSearchChange={onSearchChange} searchCategory={searchCategory} onCategorySelect={onCategorySelect} />
+      <TopHeader cartCount={cartCount} onOpenCart={onOpenCart} searchText={searchText} onSearchChange={onSearchChange} searchCategory={searchCategory} onCategorySelect={onCategorySelect} categories={categories} />
 
       <ScrollView
         ref={scrollRef}
@@ -791,4 +839,6 @@ const styles = StyleSheet.create({
   navIcon: { color: '#5C6C64', fontSize: 24 },
   navLabel: { color: '#5C6C64', fontSize: 12, marginTop: 6 },
   navActive: { color: '#173B2B', fontWeight: '700' },
+  loadingText: { color: '#173B2B', fontSize: 16, marginTop: 16 },
+  errorEmoji: { fontSize: 48, marginBottom: 12 },
 });
