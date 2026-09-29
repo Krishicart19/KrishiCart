@@ -1,14 +1,19 @@
 import 'reflect-metadata';
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import { initializeDatabase } from './config/database';
 import routes from './routes';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:8081', 'http://localhost:19006'],
+  credentials: true,
+}));
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.get('/', (req, res) => {
   res.json({
@@ -19,6 +24,7 @@ app.get('/', (req, res) => {
       products: '/api/products',
       search: '/api/products/search?q=query',
       cart: '/api/cart/:userId',
+      admin: '/api/admin',
     },
   });
 });

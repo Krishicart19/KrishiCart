@@ -33,4 +33,10 @@ export class Product {
 
   @Column('text', { nullable: true })
   description: string;
+
+  @Column({ type: 'int', default: 0 })
+  stock: number;
+
+  @Column({ type: 'int', default: 0 })
+  discount: number;
 }

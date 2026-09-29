@@ -12,6 +12,7 @@ type APIProduct = {
   emoji: string;
   color: string;
   description: string;
+  discount?: number;
 };
 
 export type User = {
@@ -54,6 +55,7 @@ const mapProduct = (p: APIProduct): Product => ({
   emoji: p.emoji,
   color: p.color,
   description: p.description,
+  discount: p.discount || 0,
 });
 
 export const api = {

@@ -14,6 +14,7 @@ export type Product = {
   emoji: string;
   color: string;
   description: string;
+  discount?: number;
 };
 
 export type CartItem = Product & {

@@ -12,14 +12,6 @@ import { SignUpScreen } from './src/screens/SignUpScreen';
 
 type Tab = 'categories' | 'orders' | 'profile';
 
-const categorySections = [
-  { title: 'Agriculture', categoryIds: ['agriculture-equipments', 'seeds', 'fertilizers', 'irrigation', 'pumps-motors', 'tools'] },
-  { title: 'Civil & Interiors', categoryIds: ['cement', 'tiling', 'painting', 'waterproofing', 'plywood', 'adhesive'] },
-  { title: 'Furniture & Architectural Hardware', categoryIds: ['furniture', 'hinges', 'kitchen-systems', 'wardrobe-fittings', 'door-locks'] },
-  { title: 'Electrical', categoryIds: ['electrical-conduits', 'wires', 'switches', 'lighting'] },
-  { title: 'Plumbing, Sanitary & Bath', categoryIds: ['cpvc', 'apvc', 'pvc', 'overhead-tanks', 'pumps-motors', 'sanitary'] },
-];
-
 function MainApp() {
   const [activeTab, setActiveTab] = useState<Tab>('categories');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -476,16 +468,17 @@ function CategoriesScreen({ cartCount, cart, onOpenCart, onOpenCategory, searchT
         return textMatches && categoryMatches;
       })
     : [];
-  const visibleSections = categorySections
-    .map((section) => {
-      const items = section.categoryIds
-        .map((categoryId) => categories.find((category) => category.id === categoryId))
-        .filter((category): category is (typeof categories)[number] => Boolean(category))
-        .filter((category) => searchText.trim().length === 0 || category.name.toLowerCase().includes(searchText.trim().toLowerCase()));
 
-      return { ...section, items };
-    })
-    .filter((section) => section.items.length > 0);
+  // Filter categories dynamically from database (exclude 'all' category)
+  const visibleCategories = categories
+    .filter((category) => category.id !== 'all')
+    .filter((category) => searchText.trim().length === 0 || category.name.toLowerCase().includes(searchText.trim().toLowerCase()));
+
+  // Group categories into rows of 3
+  const categoryRows: Category[][] = [];
+  for (let i = 0; i < visibleCategories.length; i += 3) {
+    categoryRows.push(visibleCategories.slice(i, i + 3));
+  }
 
   const getQuantity = (productId: string) => {
     const cartItem = cart.find((item) => item.id === productId);
@@ -529,34 +522,27 @@ function CategoriesScreen({ cartCount, cart, onOpenCart, onOpenCategory, searchT
           </View>
         )}
 
-        {!searchingProducts && visibleSections.map((section) => {
-          const rows = [] as typeof section.items[];
-          for (let index = 0; index < section.items.length; index += 3) {
-            rows.push(section.items.slice(index, index + 3));
-          }
+        {!searchingProducts && visibleCategories.length > 0 && (
+          <View style={styles.categorySection}>
+            <Text style={styles.sectionTitle}>All Categories</Text>
+            {categoryRows.map((rowItems, rowIndex) => (
+              <View key={`row-${rowIndex}`} style={styles.categoryGridRow}>
+                {rowItems.map((item) => {
+                  const itemCount = products.filter((product) => product.categoryId === item.id).length;
+                  return (
+                    <Pressable key={item.id} onPress={() => onOpenCategory(item.id)} style={styles.categoryCard}>
+                      <View style={styles.categoryIconCircle}><Text style={styles.categoryEmoji}>{item.icon}</Text></View>
+                      <Text numberOfLines={2} ellipsizeMode="tail" adjustsFontSizeToFit minimumFontScale={0.7} style={styles.categoryCardTitle}>{item.name}</Text>
+                      <Text style={styles.categoryCardCount}>{itemCount} products</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        )}
 
-          return (
-            <View key={section.title} style={styles.categorySection}>
-              <Text style={styles.sectionTitle}>{section.title}</Text>
-              {rows.map((rowItems, rowIndex) => (
-                <View key={`${section.title}-${rowIndex}`} style={styles.categoryGridRow}>
-                  {rowItems.map((item) => {
-                    const itemCount = products.filter((product) => product.categoryId === item.id).length;
-                    return (
-                      <Pressable key={item.id} onPress={() => onOpenCategory(item.id)} style={styles.categoryCard}>
-                        <View style={styles.categoryIconCircle}><Text style={styles.categoryEmoji}>{item.icon}</Text></View>
-                        <Text numberOfLines={2} ellipsizeMode="tail" adjustsFontSizeToFit minimumFontScale={0.7} style={styles.categoryCardTitle}>{item.name}</Text>
-                        <Text style={styles.categoryCardCount}>{itemCount} products</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ))}
-            </View>
-          );
-        })}
-
-        {searchingProducts && matchingProducts.length === 0 && visibleSections.length === 0 && (
+        {searchingProducts && matchingProducts.length === 0 && visibleCategories.length === 0 && (
           <Text style={styles.emptyText}>No products or categories match your search.</Text>
         )}
       </ScrollView>
