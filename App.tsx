@@ -1,11 +1,12 @@
 ﻿import { StatusBar } from 'expo-status-bar';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, BackHandler, FlatList, Platform, Pressable, SafeAreaView, ScrollView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, FlatList, Image, Platform, Pressable, SafeAreaView, ScrollView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { FlatList as FlatListType, ScrollView as ScrollViewType } from 'react-native';
 
 import { ProductCard } from './src/components/ProductCard';
+import { ImageCarousel } from './src/components/ImageCarousel';
 import { api } from './src/api';
-import { CartItem, Category, Product } from './src/types/catalog';
+import { CartItem, Category, Product, ProductImage } from './src/types/catalog';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { SignInScreen } from './src/screens/SignInScreen';
 import { SignUpScreen } from './src/screens/SignUpScreen';
@@ -321,7 +322,7 @@ function MainApp() {
       )}
       {selectedProduct && (
         <View style={[styles.screenLayer, { zIndex: 2 }]}>
-          <ProductDetails product={selectedProduct} onBack={goBackToPreviousPage} onAdd={addToCart} onOpenCart={openCart} />
+          <ProductDetails product={selectedProduct} onBack={goBackToPreviousPage} onAdd={addToCart} onChangeQuantity={changeQuantity} cart={cart} onOpenCart={openCart} />
         </View>
       )}
     </View>
@@ -614,7 +615,13 @@ function CartScreen({ cart, total, onChangeQuantity, onBack }: { cart: CartItem[
       <ScrollView contentContainerStyle={styles.cartList}>
         {cart.map((item) => (
           <View key={item.id} style={styles.cartItem}>
-            <View style={[styles.cartItemEmoji, { backgroundColor: item.color }]}><Text style={styles.cartEmoji}>{item.emoji}</Text></View>
+            <View style={styles.cartItemImage}>
+              {item.imageUrl ? (
+                <Image source={{ uri: item.imageUrl }} style={styles.cartImage} resizeMode="contain" />
+              ) : (
+                <Text style={styles.cartNoImage}>No img</Text>
+              )}
+            </View>
             <View style={styles.cartItemInfo}>
               <Text style={styles.cartItemName}>{item.name}</Text>
               <Text style={styles.unit}>{item.unit}</Text>
@@ -642,28 +649,160 @@ function CartScreen({ cart, total, onChangeQuantity, onBack }: { cart: CartItem[
   );
 }
 
-function ProductDetails({ product, onBack, onAdd, onOpenCart }: { product: Product; onBack: () => void; onAdd: (product: Product) => void; onOpenCart: () => void }) {
+type VariantGroups = Record<string, string[]>;
+
+function ProductDetails({ product, onBack, onAdd, onChangeQuantity, cart, onOpenCart }: { product: Product; onBack: () => void; onAdd: (product: Product) => void; onChangeQuantity: (productId: string, change: number) => void; cart: CartItem[]; onOpenCart: () => void }) {
+  const [images, setImages] = useState<ProductImage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fullProduct, setFullProduct] = useState<Product | null>(null);
+  const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setLoading(true);
+    api.getProduct(product.id)
+      .then((fetchedProduct) => {
+        setFullProduct(fetchedProduct);
+        setImages(fetchedProduct.images || []);
+        if (fetchedProduct.variants) {
+          try {
+            const parsed: VariantGroups = JSON.parse(fetchedProduct.variants);
+            const initialSelections: Record<string, string> = {};
+            Object.entries(parsed).forEach(([name, options]) => {
+              if (options.length > 0) {
+                initialSelections[name] = options[0];
+              }
+            });
+            setSelectedVariants(initialSelections);
+          } catch {
+            setSelectedVariants({});
+          }
+        }
+      })
+      .catch(() => {
+        setImages([]);
+        setFullProduct(null);
+      })
+      .finally(() => setLoading(false));
+  }, [product.id]);
+
+  const variantGroups: VariantGroups = useMemo(() => {
+    if (!fullProduct?.variants) return {};
+    try {
+      return JSON.parse(fullProduct.variants);
+    } catch {
+      return {};
+    }
+  }, [fullProduct?.variants]);
+
+  const variantEntries = Object.entries(variantGroups);
+  const hasVariants = variantEntries.length > 0;
+  const hasDiscount = Boolean(product.discount && product.discount > 0);
+  const originalPrice = hasDiscount ? Math.round(product.price / (1 - product.discount / 100)) : product.price;
+
+  const selectedSummary = Object.values(selectedVariants).filter(Boolean).join(', ');
+
+  const selectVariant = (groupName: string, option: string) => {
+    setSelectedVariants(prev => ({ ...prev, [groupName]: option }));
+  };
+
+  const cartItem = cart.find(item => item.id === product.id);
+  const quantity = cartItem ? cartItem.quantity : 0;
+
   return (
-    <View style={styles.page}>
+    <ScrollView style={styles.page} contentContainerStyle={{ paddingBottom: 120 }}>
       <View style={styles.detailHeader}>
         <Pressable onPress={onBack} style={styles.backButton}><Text style={styles.backText}>‹</Text></Pressable>
         <Text style={styles.title}>Product details</Text>
         <Pressable onPress={onOpenCart}><Text style={styles.cartIcon}>🛒</Text></Pressable>
       </View>
 
-      <View style={[styles.detailImage, { backgroundColor: product.color }]}><Text style={styles.detailEmoji}>{product.emoji}</Text></View>
-      <Text style={styles.detailName}>{product.name}</Text>
-      <Text style={styles.unit}>{product.unit}</Text>
-      <Text style={styles.detailRating}>★ {product.rating} rating</Text>
-      <Text style={styles.description}>{product.description}</Text>
+      {loading ? (
+        <View style={styles.detailImage}>
+          <ActivityIndicator size="large" color="#173B2B" />
+        </View>
+      ) : (
+        <ImageCarousel images={images} mainImageUrl={product.imageUrl} />
+      )}
 
-      <View style={styles.detailFooter}>
-        <Text style={styles.detailPrice}>₹{product.price}</Text>
-        <Pressable onPress={() => onAdd(product)} style={styles.detailAddButton}>
-          <Text style={styles.checkoutText}>Add to cart</Text>
-        </Pressable>
+      <View style={styles.detailContent}>
+        <Text style={styles.detailName}>{product.name}</Text>
+        <Text style={styles.unit}>{product.unit}</Text>
+
+        <View style={styles.priceRow}>
+          <Text style={styles.detailPrice}>₹{product.price}</Text>
+          {hasDiscount && (
+            <>
+              <Text style={styles.originalPrice}>₹{originalPrice}</Text>
+              <View style={styles.discountBadgeSmall}>
+                <Text style={styles.discountTextSmall}>{product.discount}% OFF</Text>
+              </View>
+            </>
+          )}
+        </View>
+
+        <Text style={styles.detailRating}>★ {product.rating} rating</Text>
+
+        {variantEntries.map(([groupName, options]) => (
+          <View key={groupName} style={styles.variantSection}>
+            <Text style={styles.variantSectionTitle}>{groupName}</Text>
+            <View style={styles.variantOptions}>
+              {options.map((option) => (
+                <Pressable
+                  key={option}
+                  onPress={() => selectVariant(groupName, option)}
+                  style={[
+                    styles.variantOption,
+                    selectedVariants[groupName] === option && styles.variantOptionSelected
+                  ]}
+                >
+                  <Text style={[
+                    styles.variantOptionText,
+                    selectedVariants[groupName] === option && styles.variantOptionTextSelected
+                  ]}>{option}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ))}
+
+        <Text style={styles.description}>{product.description}</Text>
       </View>
-    </View>
+
+      <View style={styles.detailFooterFixed}>
+        <View style={styles.footerLeft}>
+          {hasVariants && selectedSummary && (
+            <Text style={styles.selectedSummary}>{selectedSummary}</Text>
+          )}
+          <View style={styles.footerPriceRow}>
+            <Text style={styles.footerPrice}>₹{product.price}</Text>
+            {hasDiscount && (
+              <>
+                <Text style={styles.footerOriginalPrice}>₹{originalPrice}</Text>
+                <View style={styles.footerDiscountBadge}>
+                  <Text style={styles.footerDiscountText}>{product.discount}% OFF</Text>
+                </View>
+              </>
+            )}
+          </View>
+          <Text style={styles.gstText}>Including GST</Text>
+        </View>
+        {quantity > 0 ? (
+          <View style={styles.detailQuantityControl}>
+            <Pressable onPress={() => onChangeQuantity(product.id, -1)} style={styles.detailQuantityButton}>
+              <Text style={styles.detailQuantityButtonText}>−</Text>
+            </Pressable>
+            <Text style={styles.detailQuantity}>{quantity}</Text>
+            <Pressable onPress={() => onChangeQuantity(product.id, 1)} style={styles.detailQuantityButton}>
+              <Text style={styles.detailQuantityButtonText}>+</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable onPress={() => onAdd(product)} style={styles.addButton}>
+            <Text style={styles.addButtonText}>Add</Text>
+          </Pressable>
+        )}
+      </View>
+    </ScrollView>
   );
 }
 
@@ -880,8 +1019,9 @@ const styles = StyleSheet.create({
   cartTitle: { marginBottom: 16 },
   cartList: { paddingBottom: 150 },
   cartItem: { alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 16, flexDirection: 'row', marginBottom: 12, padding: 12 },
-  cartItemEmoji: { alignItems: 'center', borderRadius: 12, height: 52, justifyContent: 'center', width: 52 },
-  cartEmoji: { fontSize: 24 },
+  cartItemImage: { alignItems: 'center', borderRadius: 8, height: 52, justifyContent: 'center', width: 52, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#F0F0F0', overflow: 'hidden' },
+  cartImage: { width: '90%', height: '90%' },
+  cartNoImage: { fontSize: 10, color: '#999' },
   cartItemInfo: { flex: 1, marginLeft: 12 },
   cartItemName: { color: '#173B2B', fontSize: 15, fontWeight: '700' },
   quantityControl: { alignItems: 'center', flexDirection: 'row' },
@@ -896,8 +1036,10 @@ const styles = StyleSheet.create({
   detailHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
   backButton: { alignItems: 'center', backgroundColor: '#EEF4EC', borderRadius: 10, height: 36, justifyContent: 'center', width: 36 },
   backText: { color: '#173B2B', fontSize: 28, fontWeight: '700' },
-  detailImage: { alignItems: 'center', borderRadius: 20, height: 220, justifyContent: 'center', marginBottom: 18 },
-  detailEmoji: { fontSize: 80 },
+  detailImage: { alignItems: 'center', borderRadius: 16, height: 280, justifyContent: 'center', marginBottom: 18, borderWidth: 1, borderColor: '#E0E0E0', overflow: 'hidden', backgroundColor: '#FFFFFF' },
+  detailProductImage: { width: '80%', height: '80%' },
+  noImageText: { fontSize: 16, color: '#999' },
+  detailContent: { paddingHorizontal: 18, marginTop: 16 },
   detailName: { color: '#173B2B', fontSize: 24, fontWeight: '800' },
   detailRating: { color: '#D9961A', fontSize: 14, fontWeight: '700', marginTop: 8 },
   description: { color: '#5F6F66', fontSize: 15, lineHeight: 24, marginTop: 12 },
@@ -922,4 +1064,30 @@ const styles = StyleSheet.create({
   profileValue: { color: '#173B2B', fontSize: 14, fontWeight: '600', flex: 1, textAlign: 'right' },
   signOutButton: { backgroundColor: '#FFE5E5', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 24, marginHorizontal: 0 },
   signOutText: { color: '#D94C34', fontSize: 16, fontWeight: '700' },
+  priceRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
+  originalPrice: { color: '#999', fontSize: 16, textDecorationLine: 'line-through' },
+  discountBadgeSmall: { backgroundColor: '#E8F5E9', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 4 },
+  discountTextSmall: { color: '#2E7D32', fontSize: 12, fontWeight: '700' },
+  gstText: { color: '#738078', fontSize: 11 },
+  variantSection: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#E8E8E8' },
+  variantSectionTitle: { color: '#173B2B', fontSize: 15, fontWeight: '700', marginBottom: 10 },
+  variantOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  variantOption: { borderWidth: 1, borderColor: '#D0D0D0', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#FFFFFF', minWidth: 50, alignItems: 'center' },
+  variantOptionSelected: { borderColor: '#173B2B', borderWidth: 2, backgroundColor: '#F0F8F0' },
+  variantOptionText: { color: '#333', fontSize: 13, fontWeight: '500' },
+  variantOptionTextSelected: { color: '#173B2B', fontWeight: '700' },
+  detailFooterFixed: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E8E8E8', paddingHorizontal: 16, paddingVertical: 12, marginTop: 20, marginHorizontal: -18, paddingBottom: 20 },
+  footerLeft: { flex: 1 },
+  footerPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  footerPrice: { color: '#173B2B', fontSize: 20, fontWeight: '800' },
+  footerOriginalPrice: { color: '#999', fontSize: 14, textDecorationLine: 'line-through' },
+  footerDiscountBadge: { backgroundColor: '#E8F5E9', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  footerDiscountText: { color: '#2E7D32', fontSize: 11, fontWeight: '700' },
+  selectedSummary: { color: '#555', fontSize: 12, marginBottom: 4 },
+  addButton: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#173B2B', borderRadius: 8, paddingHorizontal: 40, paddingVertical: 12, alignItems: 'center' },
+  addButtonText: { color: '#173B2B', fontSize: 16, fontWeight: '700' },
+  detailQuantityControl: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#173B2B', borderRadius: 8, paddingHorizontal: 4, paddingVertical: 4 },
+  detailQuantityButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', borderRadius: 6 },
+  detailQuantityButtonText: { color: '#173B2B', fontSize: 20, fontWeight: '700' },
+  detailQuantity: { color: '#FFFFFF', fontSize: 18, fontWeight: '700', minWidth: 40, textAlign: 'center' },
 });

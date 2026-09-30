@@ -1,6 +1,14 @@
-import { Category, Product } from '../types/catalog';
+import { Category, Product, ProductImage } from '../types/catalog';
 
 const API_BASE = 'http://localhost:3001/api';
+
+type APIProductImage = {
+  id: number;
+  productId: string;
+  imageUrl: string;
+  isPrimary: boolean;
+  sortOrder: number;
+};
 
 type APIProduct = {
   id: string;
@@ -13,6 +21,9 @@ type APIProduct = {
   color: string;
   description: string;
   discount?: number;
+  imageUrl?: string;
+  images?: APIProductImage[];
+  variants?: string;
 };
 
 export type User = {
@@ -56,6 +67,9 @@ const mapProduct = (p: APIProduct): Product => ({
   color: p.color,
   description: p.description,
   discount: p.discount || 0,
+  imageUrl: p.imageUrl,
+  images: p.images,
+  variants: p.variants,
 });
 
 export const api = {

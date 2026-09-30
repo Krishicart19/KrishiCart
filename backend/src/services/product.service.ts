@@ -16,7 +16,10 @@ export const ProductService = {
   },
 
   async findById(id: string): Promise<Product | null> {
-    return productRepository().findOne({ where: { id } });
+    return productRepository().findOne({
+      where: { id },
+      relations: ['images'],
+    });
   },
 
   async search(query: string): Promise<Product[]> {

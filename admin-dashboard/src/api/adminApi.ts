@@ -55,6 +55,8 @@ export type Product = {
   description?: string;
   stock?: number;
   discount?: number;
+  imageUrl?: string;
+  variants?: string;
   category?: Category;
   images?: ProductImage[];
 };

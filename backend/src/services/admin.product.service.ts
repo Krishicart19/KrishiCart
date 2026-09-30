@@ -17,6 +17,8 @@ export interface CreateProductData {
   description?: string;
   stock?: number;
   discount?: number;
+  imageUrl?: string;
+  variants?: string;
 }
 
 export const AdminProductService = {

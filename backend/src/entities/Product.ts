@@ -1,5 +1,6 @@
-import { Entity, PrimaryColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryColumn, Column, ManyToOne, OneToMany, JoinColumn } from 'typeorm';
 import { Category } from './Category';
+import { ProductImage } from './ProductImage';
 
 @Entity('products')
 export class Product {
@@ -39,4 +40,13 @@ export class Product {
 
   @Column({ type: 'int', default: 0 })
   discount: number;
+
+  @Column({ name: 'image_url', length: 500, nullable: true })
+  imageUrl: string;
+
+  @Column({ type: 'text', nullable: true })
+  variants: string;
+
+  @OneToMany(() => ProductImage, (image) => image.product)
+  images: ProductImage[];
 }

@@ -36,7 +36,7 @@ export const AdminProductController = {
 
   async create(req: Request, res: Response): Promise<void> {
     try {
-      const { id, categoryId, name, unit, price, rating, emoji, color, description, stock, discount } = req.body;
+      const { id, categoryId, name, unit, price, rating, emoji, color, description, stock, discount, imageUrl, variants } = req.body;
 
       if (!id || !categoryId || !name || price === undefined) {
         res.status(400).json({ error: 'ID, categoryId, name, and price are required' });
@@ -55,6 +55,8 @@ export const AdminProductController = {
         description,
         stock: stock ? parseInt(stock) : 0,
         discount: discount ? parseInt(discount) : 0,
+        imageUrl,
+        variants: variants || null,
       });
 
       res.status(201).json(product);
@@ -66,7 +68,7 @@ export const AdminProductController = {
 
   async update(req: Request, res: Response): Promise<void> {
     try {
-      const { categoryId, name, unit, price, rating, emoji, color, description, stock, discount } = req.body;
+      const { categoryId, name, unit, price, rating, emoji, color, description, stock, discount, imageUrl, variants } = req.body;
 
       const updateData: any = {};
       if (categoryId !== undefined) updateData.categoryId = categoryId;
@@ -79,6 +81,8 @@ export const AdminProductController = {
       if (description !== undefined) updateData.description = description;
       if (stock !== undefined) updateData.stock = parseInt(stock);
       if (discount !== undefined) updateData.discount = parseInt(discount);
+      if (imageUrl !== undefined) updateData.imageUrl = imageUrl;
+      if (variants !== undefined) updateData.variants = variants;
 
       const product = await AdminProductService.update(req.params.id, updateData);
 

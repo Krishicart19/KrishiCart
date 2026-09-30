@@ -4,6 +4,14 @@ export type Category = {
   icon: string;
 };
 
+export type ProductImage = {
+  id: number;
+  productId: string;
+  imageUrl: string;
+  isPrimary: boolean;
+  sortOrder: number;
+};
+
 export type Product = {
   id: string;
   categoryId: string;
@@ -15,6 +23,9 @@ export type Product = {
   color: string;
   description: string;
   discount?: number;
+  imageUrl?: string;
+  images?: ProductImage[];
+  variants?: string;
 };
 
 export type CartItem = Product & {

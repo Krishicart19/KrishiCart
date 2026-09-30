@@ -11,7 +11,12 @@ const router = Router();
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '../../uploads'));
+    const uploadDir = path.join(__dirname, '../../uploads');
+    const fs = require('fs');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -86,5 +91,8 @@ router.get('/categories/:id', AdminCategoryController.getById);
 router.post('/categories', AdminCategoryController.create);
 router.put('/categories/:id', AdminCategoryController.update);
 router.delete('/categories/:id', AdminCategoryController.delete);
+
+// Category Images
+router.post('/upload/category-image', upload.single('image'), AdminUploadController.uploadCategoryImage);
 
 export default router;
