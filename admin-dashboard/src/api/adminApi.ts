@@ -86,6 +86,11 @@ export const adminApi = {
     return data;
   },
 
+  async signup(name: string, email: string, password: string) {
+    const { data } = await api.post<{ admin: Admin; token: string }>('/auth/signup', { name, email, password });
+    return data;
+  },
+
   async getProfile() {
     const { data } = await api.get<Admin>('/auth/profile');
     return data;

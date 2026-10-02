@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { useNavigate, Navigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-export function Login() {
-  const { login, isAuthenticated, isLoading } = useAuth();
+export function Signup() {
+  const { signup, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -25,13 +27,24 @@ export function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await login(email, password);
+      await signup(name, email, password);
       navigate('/');
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Login failed');
+      setError(err.response?.data?.error || 'Signup failed');
     } finally {
       setLoading(false);
     }
@@ -46,8 +59,8 @@ export function Login() {
               <span className="text-2xl font-bold text-[#F7F3E7]">Krishi</span>
               <span className="text-2xl font-bold text-[#d38525]">Cart</span>
             </div>
-            <h1 className="text-xl font-semibold text-gray-900">Admin Login</h1>
-            <p className="text-gray-500 mt-1">Sign in to manage your store</p>
+            <h1 className="text-xl font-semibold text-gray-900">Create Admin Account</h1>
+            <p className="text-gray-500 mt-1">Sign up to manage your store</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -56,6 +69,20 @@ export function Login() {
                 {error}
               </div>
             )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Full Name
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="input-field"
+                placeholder="Enter your full name"
+                required
+              />
+            </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -80,7 +107,21 @@ export function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="input-field"
-                placeholder="Enter your password"
+                placeholder="At least 6 characters"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Confirm Password
+              </label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="input-field"
+                placeholder="Confirm your password"
                 required
               />
             </div>
@@ -90,13 +131,13 @@ export function Login() {
               disabled={loading}
               className="btn-primary w-full disabled:opacity-50"
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? 'Creating Account...' : 'Create Account'}
             </button>
 
             <p className="text-center text-sm text-gray-600 mt-4">
-              Don't have an account?{' '}
-              <Link to="/signup" className="text-[#173B2B] font-semibold hover:underline">
-                Sign Up
+              Already have an account?{' '}
+              <Link to="/login" className="text-[#173B2B] font-semibold hover:underline">
+                Sign In
               </Link>
             </p>
           </form>

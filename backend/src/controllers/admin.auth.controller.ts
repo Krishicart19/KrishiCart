@@ -61,4 +61,30 @@ export const AdminAuthController = {
       res.status(400).json({ error: message });
     }
   },
+
+  async signup(req: Request, res: Response): Promise<void> {
+    try {
+      const { name, email, password } = req.body;
+
+      if (!name || !email || !password) {
+        res.status(400).json({ error: 'Name, email, and password are required' });
+        return;
+      }
+
+      if (password.length < 6) {
+        res.status(400).json({ error: 'Password must be at least 6 characters' });
+        return;
+      }
+
+      // Create admin with default 'admin' role
+      const admin = await AdminAuthService.createAdmin({ name, email, password, role: 'admin' });
+
+      // Auto login after signup
+      const result = await AdminAuthService.login({ email, password });
+      res.status(201).json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Signup failed';
+      res.status(400).json({ error: message });
+    }
+  },
 };

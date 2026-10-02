@@ -6,11 +6,16 @@ import { CartItem } from '../entities/CartItem';
 import { User } from '../entities/User';
 import { Admin } from '../entities/Admin';
 import { ProductImage } from '../entities/ProductImage';
+import { Order } from '../entities/Order';
+import { OrderItem } from '../entities/OrderItem';
 import { CreateTables1726600000000 } from '../migrations/1726600000000-CreateTables';
 import { SeedData1726600000001 } from '../migrations/1726600000001-SeedData';
 import { CreateUsersTable1726600000002 } from '../migrations/1726600000002-CreateUsersTable';
 import { CreateAdminTables1726600000003 } from '../migrations/1726600000003-CreateAdminTables';
 import { AddDiscountColumn1726600000004 } from '../migrations/1726600000004-AddDiscountColumn';
+import { AddImageUrlColumns1726600000005 } from '../migrations/1726600000005-AddImageUrlColumns';
+import { AddSizesColumn1726600000006 } from '../migrations/1726600000006-AddSizesColumn';
+import { CreateOrdersTables1726600000007 } from '../migrations/1726600000007-CreateOrdersTables';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -21,8 +26,8 @@ export const AppDataSource = new DataSource({
   database: process.env.DB_NAME || 'krishicart',
   synchronize: false,
   logging: process.env.NODE_ENV === 'development',
-  entities: [Category, Product, CartItem, User, Admin, ProductImage],
-  migrations: [CreateTables1726600000000, SeedData1726600000001, CreateUsersTable1726600000002, CreateAdminTables1726600000003, AddDiscountColumn1726600000004],
+  entities: [Category, Product, CartItem, User, Admin, ProductImage, Order, OrderItem],
+  migrations: [CreateTables1726600000000, SeedData1726600000001, CreateUsersTable1726600000002, CreateAdminTables1726600000003, AddDiscountColumn1726600000004, AddImageUrlColumns1726600000005, AddSizesColumn1726600000006, CreateOrdersTables1726600000007],
   migrationsTableName: 'typeorm_migrations',
 });
 

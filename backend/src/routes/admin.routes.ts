@@ -5,6 +5,7 @@ import { AdminAuthController } from '../controllers/admin.auth.controller';
 import { AdminProductController } from '../controllers/admin.product.controller';
 import { AdminCategoryController } from '../controllers/admin.category.controller';
 import { AdminUploadController } from '../controllers/admin.upload.controller';
+import { AdminOrderController } from '../controllers/order.controller';
 import { adminAuthMiddleware, ownerOnlyMiddleware } from '../middleware/admin.middleware';
 
 const router = Router();
@@ -42,6 +43,7 @@ const upload = multer({
 
 // Public routes
 router.post('/auth/login', AdminAuthController.login);
+router.post('/auth/signup', AdminAuthController.signup);
 
 // Protected routes
 router.use(adminAuthMiddleware);
@@ -94,5 +96,11 @@ router.delete('/categories/:id', AdminCategoryController.delete);
 
 // Category Images
 router.post('/upload/category-image', upload.single('image'), AdminUploadController.uploadCategoryImage);
+
+// Orders
+router.get('/orders', AdminOrderController.getAll);
+router.get('/orders/stats', AdminOrderController.getStats);
+router.put('/orders/:id/verify', AdminOrderController.verifyPayment);
+router.put('/orders/:id/status', AdminOrderController.updateStatus);
 
 export default router;

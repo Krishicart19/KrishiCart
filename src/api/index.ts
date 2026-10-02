@@ -1,6 +1,10 @@
+import { Platform } from 'react-native';
 import { Category, Product, ProductImage } from '../types/catalog';
 
-const API_BASE = 'http://localhost:3001/api';
+// Use your computer's IP for mobile devices, localhost for web
+const API_BASE = Platform.OS === 'web'
+  ? 'http://localhost:3001/api'
+  : 'http://192.168.0.106:3001/api';
 
 type APIProductImage = {
   id: number;
@@ -147,6 +151,114 @@ export const api = {
     if (!response.ok) throw new Error(result.error || 'Failed to update profile');
     return result;
   },
+
+  // Orders
+  async getUPIConfig(): Promise<{ upiId: string; businessName: string }> {
+    const response = await fetch(`${API_BASE}/orders/upi-config`);
+    if (!response.ok) throw new Error('Failed to fetch UPI config');
+    return response.json();
+  },
+
+  async createOrder(data: CreateOrderData): Promise<CreateOrderResponse> {
+    const response = await fetch(`${API_BASE}/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to create order');
+    return result;
+  },
+
+  async getOrder(id: number): Promise<Order> {
+    const response = await fetch(`${API_BASE}/orders/${id}`);
+    if (!response.ok) throw new Error('Failed to fetch order');
+    return response.json();
+  },
+
+  async getUserOrders(userId: string): Promise<Order[]> {
+    const response = await fetch(`${API_BASE}/orders/user/${userId}`);
+    if (!response.ok) throw new Error('Failed to fetch orders');
+    return response.json();
+  },
+
+  async markPaymentSubmitted(orderId: number): Promise<Order> {
+    const response = await fetch(`${API_BASE}/orders/${orderId}/payment-submitted`, {
+      method: 'PUT',
+    });
+    if (!response.ok) throw new Error('Failed to update order');
+    return response.json();
+  },
+
+  async getSavedAddresses(userId: string): Promise<SavedAddress[]> {
+    const response = await fetch(`${API_BASE}/orders/addresses/${userId}`);
+    if (!response.ok) throw new Error('Failed to fetch saved addresses');
+    return response.json();
+  },
+};
+
+export type SavedAddress = {
+  userName: string;
+  userMobile: string;
+  deliveryAddress: string;
+  pinCode: string;
+};
+
+export type OrderItem = {
+  id: number;
+  productId: string;
+  productName: string;
+  productImage?: string;
+  quantity: number;
+  price: number;
+  unit?: string;
+  selectedVariants?: string;
+};
+
+export type Order = {
+  id: number;
+  userId: string;
+  userName: string;
+  userMobile: string;
+  deliveryAddress: string;
+  pinCode: string;
+  totalAmount: number;
+  paymentMethod: 'UPI' | 'COD';
+  paymentStatus: 'pending' | 'submitted' | 'verified' | 'failed';
+  orderStatus: 'placed' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+  upiTransactionNote: string;
+  createdAt: string;
+  items: OrderItem[];
+};
+
+export type CreateOrderData = {
+  userId: string;
+  userName: string;
+  userMobile: string;
+  deliveryAddress: string;
+  pinCode: string;
+  totalAmount: number;
+  paymentMethod: 'UPI' | 'COD';
+  items: {
+    productId: string;
+    productName: string;
+    productImage?: string;
+    quantity: number;
+    price: number;
+    unit?: string;
+    selectedVariants?: string;
+  }[];
+};
+
+export type CreateOrderResponse = {
+  order: Order;
+  payment: {
+    upiId: string;
+    businessName: string;
+    amount: number;
+    transactionNote: string;
+    upiLink: string;
+  } | null;
 };
 
 export const getApiUrl = (): string => API_BASE;

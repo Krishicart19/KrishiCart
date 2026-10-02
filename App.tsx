@@ -1,11 +1,15 @@
 ﻿import { StatusBar } from 'expo-status-bar';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, BackHandler, FlatList, Image, Platform, Pressable, SafeAreaView, ScrollView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, FlatList, Image, Linking, Platform, Pressable, SafeAreaView, ScrollView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import type { FlatList as FlatListType, ScrollView as ScrollViewType } from 'react-native';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ProductCard } from './src/components/ProductCard';
 import { ImageCarousel } from './src/components/ImageCarousel';
-import { api } from './src/api';
+import { api, Order, CreateOrderResponse, SavedAddress } from './src/api';
+
+const CART_STORAGE_KEY = '@KrishiCart:cart';
 import { CartItem, Category, Product, ProductImage } from './src/types/catalog';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { SignInScreen } from './src/screens/SignInScreen';
@@ -42,6 +46,35 @@ function MainApp() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [currentOrder, setCurrentOrder] = useState<CreateOrderResponse | null>(null);
+
+  // Load cart from storage on mount
+  useEffect(() => {
+    const loadCart = async () => {
+      try {
+        const savedCart = await AsyncStorage.getItem(CART_STORAGE_KEY);
+        if (savedCart) {
+          setCart(JSON.parse(savedCart));
+        }
+      } catch (error) {
+        console.error('Failed to load cart:', error);
+      }
+    };
+    loadCart();
+  }, []);
+
+  // Save cart to storage whenever it changes
+  useEffect(() => {
+    const saveCart = async () => {
+      try {
+        await AsyncStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+      } catch (error) {
+        console.error('Failed to save cart:', error);
+      }
+    };
+    saveCart();
+  }, [cart]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -67,6 +100,12 @@ function MainApp() {
   // Handle Android back button
   useEffect(() => {
     const handleBackPress = () => {
+      // If checkout is open, go back to cart
+      if (checkoutOpen) {
+        setCheckoutOpen(false);
+        setCartScreenOpen(true);
+        return true;
+      }
       // If cart is open, close it
       if (cartScreenOpen) {
         setCartScreenOpen(false);
@@ -104,7 +143,7 @@ function MainApp() {
       const subscription = BackHandler.addEventListener('hardwareBackPress', handleBackPress);
       return () => subscription.remove();
     }
-  }, [cartScreenOpen, selectedProduct, selectedCategory, activeTab, searchText]);
+  }, [checkoutOpen, cartScreenOpen, selectedProduct, selectedCategory, activeTab, searchText]);
 
   // Sync app state changes to navigation stack on web
   useEffect(() => {
@@ -225,6 +264,21 @@ function MainApp() {
 
   const openCart = useCallback(() => {
     setCartScreenOpen(true);
+  }, []);
+
+  const openCheckout = useCallback(() => {
+    setCheckoutOpen(true);
+    setCartScreenOpen(false);
+  }, []);
+
+  const clearCart = useCallback(() => {
+    setCart([]);
+  }, []);
+
+  const handleOrderComplete = useCallback(() => {
+    setCheckoutOpen(false);
+    setCurrentOrder(null);
+    setActiveTab('categories');
   }, []);
 
   const openCategory = useCallback((categoryId: string) => {
@@ -355,8 +409,17 @@ function MainApp() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
-      {cartScreenOpen ? (
-        <CartScreen cart={cart} total={cartTotal} onChangeQuantity={changeQuantity} onBack={() => setCartScreenOpen(false)} />
+      {checkoutOpen ? (
+        <CheckoutScreen
+          cart={cart}
+          total={cartTotal}
+          orderData={currentOrder}
+          onBack={() => { setCheckoutOpen(false); setCartScreenOpen(true); }}
+          onOrderComplete={handleOrderComplete}
+          onClearCart={clearCart}
+        />
+      ) : cartScreenOpen ? (
+        <CartScreen cart={cart} total={cartTotal} onChangeQuantity={changeQuantity} onBack={() => setCartScreenOpen(false)} onCheckout={openCheckout} />
       ) : (
         <>
           {mainScreen}
@@ -395,11 +458,7 @@ function TopHeader({ cartCount, onOpenCart, searchText, onSearchChange, searchCa
           <Text style={[styles.brandText, styles.brandAccent]}>Cart</Text>
         </View>
 
-        <View style={styles.locationBlock}>
-          <Text style={styles.locationLabel}>Delivering to</Text>
-          <Text style={styles.locationText}>Dharwad 580006</Text>
-          <Text style={styles.locationLink}>Update location</Text>
-        </View>
+        <View style={{ flex: 1 }} />
 
         <Pressable onPress={onOpenCart} style={styles.cartBadge}>
           <Text style={styles.cartIcon}>🛒</Text>
@@ -593,7 +652,7 @@ const CategoryItemsScreen = memo(function CategoryItemsScreen(props: CategoryIte
   );
 });
 
-function CartScreen({ cart, total, onChangeQuantity, onBack }: { cart: CartItem[]; total: number; onChangeQuantity: (id: string, change: number) => void; onBack: () => void }) {
+function CartScreen({ cart, total, onChangeQuantity, onBack, onCheckout }: { cart: CartItem[]; total: number; onChangeQuantity: (id: string, change: number) => void; onBack: () => void; onCheckout: () => void }) {
   if (cart.length === 0) {
     return (
       <View style={[styles.page, styles.centerContent]}>
@@ -641,13 +700,631 @@ function CartScreen({ cart, total, onChangeQuantity, onBack }: { cart: CartItem[
           <Text style={styles.mutedText}>Total</Text>
           <Text style={styles.total}>₹{total}</Text>
         </View>
-        <Pressable onPress={() => Alert.alert('Coming next', 'Checkout will be connected after we build login and the backend API.')} style={styles.checkoutButton}>
+        <Pressable onPress={onCheckout} style={styles.checkoutButton}>
           <Text style={styles.checkoutText}>Proceed to checkout</Text>
         </Pressable>
       </View>
     </View>
   );
 }
+
+type UPIApp = {
+  id: string;
+  name: string;
+  icon: string;
+  packageName: string;
+  scheme: string;
+};
+
+const UPI_APPS: UPIApp[] = [
+  { id: 'gpay', name: 'Google Pay', icon: '🟢', packageName: 'com.google.android.apps.nbu.paisa.user', scheme: 'gpay' },
+  { id: 'phonepe', name: 'PhonePe', icon: '🟣', packageName: 'com.phonepe.app', scheme: 'phonepe' },
+  { id: 'paytm', name: 'Paytm', icon: '🔵', packageName: 'net.one97.paytm', scheme: 'paytmmp' },
+  { id: 'bhim', name: 'BHIM', icon: '🟠', packageName: 'in.org.npci.upiapp', scheme: 'upi' },
+];
+
+function CheckoutScreen({ cart, total, orderData, onBack, onOrderComplete, onClearCart }: {
+  cart: CartItem[];
+  total: number;
+  orderData: CreateOrderResponse | null;
+  onBack: () => void;
+  onOrderComplete: () => void;
+  onClearCart: () => void;
+}) {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [paymentStep, setPaymentStep] = useState<'review' | 'address' | 'selectPayment' | 'creating' | 'payment' | 'submitted' | 'success'>('review');
+  const [order, setOrder] = useState<CreateOrderResponse | null>(orderData);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'UPI' | 'COD'>('UPI');
+  const [selectedUPIApp, setSelectedUPIApp] = useState<string | null>(null);
+
+  // Delivery address state
+  const [deliveryName, setDeliveryName] = useState(user?.fullName || '');
+  const [deliveryMobile, setDeliveryMobile] = useState(user?.mobileNumber || '');
+  const [deliveryAddress, setDeliveryAddress] = useState(user?.address || '');
+  const [deliveryPinCode, setDeliveryPinCode] = useState(user?.pinCode || '');
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+
+  // Fetch saved addresses when component mounts
+  useEffect(() => {
+    if (user) {
+      api.getSavedAddresses(user.id)
+        .then(setSavedAddresses)
+        .catch(console.error);
+    }
+  }, [user]);
+
+  const handleProceedToAddress = () => {
+    setPaymentStep('address');
+  };
+
+  const handleProceedToPayment = () => {
+    if (!deliveryName.trim() || !deliveryMobile.trim() || !deliveryAddress.trim() || !deliveryPinCode.trim()) {
+      Alert.alert('Missing Details', 'Please fill in all delivery details');
+      return;
+    }
+    if (deliveryMobile.length < 10) {
+      Alert.alert('Invalid Mobile', 'Please enter a valid 10-digit mobile number');
+      return;
+    }
+    if (deliveryPinCode.length < 6) {
+      Alert.alert('Invalid PIN Code', 'Please enter a valid 6-digit PIN code');
+      return;
+    }
+    setPaymentStep('selectPayment');
+  };
+
+  const handlePlaceOrder = async () => {
+    if (!user) {
+      Alert.alert('Error', 'Please sign in to place an order');
+      return;
+    }
+
+    setPaymentStep('creating');
+    setLoading(true);
+
+    try {
+      const orderItems = cart.map(item => ({
+        productId: item.id,
+        productName: item.name,
+        productImage: item.imageUrl,
+        quantity: item.quantity,
+        price: item.price,
+        unit: item.unit,
+      }));
+
+      const result = await api.createOrder({
+        userId: user.id,
+        userName: deliveryName,
+        userMobile: deliveryMobile,
+        deliveryAddress: deliveryAddress,
+        pinCode: deliveryPinCode,
+        totalAmount: total,
+        paymentMethod: selectedPaymentMethod,
+        items: orderItems,
+      });
+
+      setOrder(result);
+
+      if (selectedPaymentMethod === 'COD') {
+        setPaymentStep('success');
+        onClearCart();
+      } else {
+        setPaymentStep('payment');
+      }
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to create order');
+      setPaymentStep('selectPayment');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenUPI = async (appId?: string) => {
+    if (!order?.payment.upiLink) return;
+
+    try {
+      let upiLink = order.payment.upiLink;
+
+      // If a specific app is selected, try to use its scheme
+      if (appId && Platform.OS !== 'web') {
+        const app = UPI_APPS.find(a => a.id === appId);
+        if (app && app.scheme !== 'upi') {
+          // Replace upi:// with the app-specific scheme
+          upiLink = upiLink.replace('upi://', `${app.scheme}://`);
+        }
+      }
+
+      const supported = await Linking.canOpenURL(upiLink);
+      if (supported) {
+        await Linking.openURL(upiLink);
+        await api.markPaymentSubmitted(order.order.id);
+        setPaymentStep('submitted');
+      } else {
+        // Fallback to generic UPI link
+        const genericSupported = await Linking.canOpenURL(order.payment.upiLink);
+        if (genericSupported) {
+          await Linking.openURL(order.payment.upiLink);
+          await api.markPaymentSubmitted(order.order.id);
+          setPaymentStep('submitted');
+        } else {
+          Alert.alert(
+            'UPI App Not Found',
+            'Please install a UPI app (Google Pay, PhonePe, Paytm, etc.) to complete the payment.',
+            [{ text: 'OK' }]
+          );
+        }
+      }
+    } catch (err) {
+      Alert.alert('Error', 'Failed to open UPI app');
+    }
+  };
+
+  const handlePaymentDone = () => {
+    setPaymentStep('success');
+    onClearCart();
+  };
+
+  if (paymentStep === 'success') {
+    const isCOD = selectedPaymentMethod === 'COD';
+    return (
+      <View style={[styles.page, styles.centerContent]}>
+        <Text style={{ fontSize: 64, marginBottom: 20 }}>{isCOD ? '📦' : '✓'}</Text>
+        <Text style={styles.sectionTitle}>Order Placed!</Text>
+        <Text style={[styles.mutedText, { textAlign: 'center', marginTop: 8 }]}>
+          Order #{order?.order.id} has been placed successfully.
+        </Text>
+        <Text style={[styles.mutedText, { textAlign: 'center', marginTop: 4 }]}>
+          {isCOD
+            ? 'Pay ₹' + total + ' when your order is delivered.'
+            : "We'll verify your payment and confirm your order shortly."
+          }
+        </Text>
+        <Pressable
+          onPress={onOrderComplete}
+          style={[styles.checkoutButton, { marginTop: 32, paddingHorizontal: 40 }]}
+        >
+          <Text style={styles.checkoutText}>Continue Shopping</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (paymentStep === 'submitted') {
+    return (
+      <View style={[styles.page, styles.centerContent]}>
+        <Text style={{ fontSize: 48, marginBottom: 20 }}>💸</Text>
+        <Text style={styles.sectionTitle}>Complete Payment</Text>
+        <Text style={[styles.mutedText, { textAlign: 'center', marginHorizontal: 20 }]}>
+          If you've completed the payment in your UPI app, tap the button below.
+        </Text>
+
+        <View style={checkoutStyles.paymentInfo}>
+          <Text style={checkoutStyles.paymentLabel}>Amount to Pay</Text>
+          <Text style={checkoutStyles.paymentAmount}>₹{order?.payment.amount}</Text>
+          <Text style={[styles.mutedText, { marginTop: 8 }]}>
+            Transaction Note: {order?.payment.transactionNote}
+          </Text>
+        </View>
+
+        <Pressable onPress={handlePaymentDone} style={[styles.checkoutButton, { marginTop: 24, width: '100%' }]}>
+          <Text style={styles.checkoutText}>I've Completed Payment</Text>
+        </Pressable>
+
+        <Pressable onPress={() => handleOpenUPI(selectedUPIApp || undefined)} style={[checkoutStyles.secondaryButton, { marginTop: 12 }]}>
+          <Text style={checkoutStyles.secondaryButtonText}>Open UPI App Again</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (paymentStep === 'payment' && order) {
+    return (
+      <ScrollView style={styles.page} contentContainerStyle={{ paddingBottom: 100 }}>
+        <View style={styles.detailHeader}>
+          <Pressable onPress={() => setPaymentStep('selectPayment')} style={styles.backButton}><Text style={styles.backText}>‹</Text></Pressable>
+          <Text style={styles.title}>Pay with UPI</Text>
+          <View style={{ width: 36 }} />
+        </View>
+
+        <View style={checkoutStyles.orderCard}>
+          <Text style={checkoutStyles.orderTitle}>Order #{order.order.id}</Text>
+          <Text style={styles.mutedText}>{order.order.items.length} items • ₹{order.payment.amount}</Text>
+        </View>
+
+        <View style={checkoutStyles.paymentCard}>
+          <Text style={checkoutStyles.cardTitle}>Pay Manually via UPI</Text>
+
+          <Text style={[styles.mutedText, { textAlign: 'center', marginBottom: 16 }]}>
+            Open any UPI app and send payment to:
+          </Text>
+
+          <View style={checkoutStyles.upiIdBox}>
+            <Text style={checkoutStyles.upiIdText}>{order.payment.upiId}</Text>
+            <Pressable
+              onPress={async () => {
+                await Clipboard.setStringAsync(order.payment.upiId);
+                Alert.alert('Copied!', 'UPI ID copied to clipboard');
+              }}
+              style={checkoutStyles.copyButton}
+            >
+              <Text style={checkoutStyles.copyButtonText}>Copy</Text>
+            </Pressable>
+          </View>
+
+          <View style={checkoutStyles.amountBox}>
+            <Text style={checkoutStyles.amountLabel}>Amount to Pay</Text>
+            <Text style={checkoutStyles.amountValue}>₹{order.payment.amount}</Text>
+          </View>
+
+          <View style={checkoutStyles.instructionsBox}>
+            <Text style={checkoutStyles.instructionsTitle}>Steps:</Text>
+            <Text style={checkoutStyles.instructionStep}>1. Open GPay / PhonePe / Paytm</Text>
+            <Text style={checkoutStyles.instructionStep}>2. Tap "Send Money" or "Pay"</Text>
+            <Text style={checkoutStyles.instructionStep}>3. Enter UPI ID: {order.payment.upiId}</Text>
+            <Text style={checkoutStyles.instructionStep}>4. Enter amount: ₹{order.payment.amount}</Text>
+            <Text style={checkoutStyles.instructionStep}>5. Complete payment</Text>
+          </View>
+
+          <Pressable onPress={handlePaymentDone} style={checkoutStyles.upiButton}>
+            <Text style={checkoutStyles.upiButtonText}>I've Completed Payment</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+    );
+  }
+
+  const useSavedAddress = () => {
+    if (user) {
+      setDeliveryName(user.fullName);
+      setDeliveryMobile(user.mobileNumber);
+      setDeliveryAddress(user.address);
+      setDeliveryPinCode(user.pinCode);
+    }
+  };
+
+  const selectSavedAddress = (addr: SavedAddress) => {
+    setDeliveryName(addr.userName);
+    setDeliveryMobile(addr.userMobile);
+    setDeliveryAddress(addr.deliveryAddress);
+    setDeliveryPinCode(addr.pinCode);
+  };
+
+  if (paymentStep === 'address') {
+    const hasSavedAddress = user?.address && user?.pinCode;
+    // Filter out addresses that match the profile address
+    const filteredOrderAddresses = savedAddresses.filter(addr =>
+      !(addr.deliveryAddress === user?.address && addr.pinCode === user?.pinCode)
+    );
+    const hasOrderAddresses = filteredOrderAddresses.length > 0;
+
+    return (
+      <ScrollView style={styles.page} contentContainerStyle={{ paddingBottom: 100 }}>
+        <View style={styles.detailHeader}>
+          <Pressable onPress={() => setPaymentStep('review')} style={styles.backButton}><Text style={styles.backText}>‹</Text></Pressable>
+          <Text style={styles.title}>Delivery Address</Text>
+          <View style={{ width: 36 }} />
+        </View>
+
+        <View style={checkoutStyles.section}>
+          <Text style={checkoutStyles.sectionTitle}>Enter Delivery Details</Text>
+
+          <View style={checkoutStyles.inputGroup}>
+            <Text style={checkoutStyles.inputLabel}>Full Name *</Text>
+            <TextInput
+              style={checkoutStyles.input}
+              value={deliveryName}
+              onChangeText={setDeliveryName}
+              placeholder="Enter your full name"
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          <View style={checkoutStyles.inputGroup}>
+            <Text style={checkoutStyles.inputLabel}>Mobile Number *</Text>
+            <TextInput
+              style={checkoutStyles.input}
+              value={deliveryMobile}
+              onChangeText={setDeliveryMobile}
+              placeholder="10-digit mobile number"
+              placeholderTextColor="#999"
+              keyboardType="phone-pad"
+              maxLength={10}
+            />
+          </View>
+
+          <View style={checkoutStyles.inputGroup}>
+            <Text style={checkoutStyles.inputLabel}>Delivery Address *</Text>
+            <TextInput
+              style={[checkoutStyles.input, { height: 80, textAlignVertical: 'top' }]}
+              value={deliveryAddress}
+              onChangeText={setDeliveryAddress}
+              placeholder="House no, Street, Area, City"
+              placeholderTextColor="#999"
+              multiline
+              numberOfLines={3}
+            />
+          </View>
+
+          <View style={checkoutStyles.inputGroup}>
+            <Text style={checkoutStyles.inputLabel}>PIN Code *</Text>
+            <TextInput
+              style={checkoutStyles.input}
+              value={deliveryPinCode}
+              onChangeText={setDeliveryPinCode}
+              placeholder="6-digit PIN code"
+              placeholderTextColor="#999"
+              keyboardType="numeric"
+              maxLength={6}
+            />
+          </View>
+        </View>
+
+        {(hasSavedAddress || hasOrderAddresses) && (
+          <View style={checkoutStyles.section}>
+            <Text style={checkoutStyles.sectionTitle}>Or Use Saved Address</Text>
+
+            {/* Profile Address */}
+            {hasSavedAddress && (
+              <Pressable
+                onPress={useSavedAddress}
+                style={[checkoutStyles.savedAddressCard, { marginBottom: 10 }]}
+              >
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={checkoutStyles.savedAddressName}>{user?.fullName}</Text>
+                    <View style={checkoutStyles.addressTag}><Text style={checkoutStyles.addressTagText}>Profile</Text></View>
+                  </View>
+                  <Text style={checkoutStyles.savedAddressText}>{user?.address}</Text>
+                  <Text style={checkoutStyles.savedAddressText}>PIN: {user?.pinCode} • Mobile: {user?.mobileNumber}</Text>
+                </View>
+                <View style={checkoutStyles.useButtonSmall}>
+                  <Text style={checkoutStyles.useButtonText}>Use</Text>
+                </View>
+              </Pressable>
+            )}
+
+            {/* Previously Used Addresses from Orders */}
+            {filteredOrderAddresses.map((addr, index) => (
+              <Pressable
+                key={index}
+                onPress={() => selectSavedAddress(addr)}
+                style={[checkoutStyles.savedAddressCard, { marginBottom: 10, backgroundColor: '#FFF9E6', borderColor: '#F59E0B' }]}
+              >
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={checkoutStyles.savedAddressName}>{addr.userName}</Text>
+                    <View style={[checkoutStyles.addressTag, { backgroundColor: '#FEF3C7' }]}><Text style={[checkoutStyles.addressTagText, { color: '#92400E' }]}>Recent</Text></View>
+                  </View>
+                  <Text style={checkoutStyles.savedAddressText}>{addr.deliveryAddress}</Text>
+                  <Text style={checkoutStyles.savedAddressText}>PIN: {addr.pinCode} • Mobile: {addr.userMobile}</Text>
+                </View>
+                <View style={[checkoutStyles.useButtonSmall, { backgroundColor: '#F59E0B' }]}>
+                  <Text style={checkoutStyles.useButtonText}>Use</Text>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        <Pressable onPress={handleProceedToPayment} style={styles.checkoutButton}>
+          <Text style={styles.checkoutText}>Continue to Payment</Text>
+        </Pressable>
+      </ScrollView>
+    );
+  }
+
+  if (paymentStep === 'selectPayment') {
+    return (
+      <ScrollView style={styles.page} contentContainerStyle={{ paddingBottom: 100 }}>
+        <View style={styles.detailHeader}>
+          <Pressable onPress={() => setPaymentStep('address')} style={styles.backButton}><Text style={styles.backText}>‹</Text></Pressable>
+          <Text style={styles.title}>Payment Method</Text>
+          <View style={{ width: 36 }} />
+        </View>
+
+        <View style={checkoutStyles.section}>
+          <Text style={checkoutStyles.sectionTitle}>Select Payment Method</Text>
+
+          {/* UPI Payment Option */}
+          <Pressable
+            onPress={() => setSelectedPaymentMethod('UPI')}
+            style={[
+              checkoutStyles.paymentOptionCard,
+              selectedPaymentMethod === 'UPI' && checkoutStyles.paymentOptionSelected
+            ]}
+          >
+            <Text style={checkoutStyles.paymentOptionIcon}>📱</Text>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={checkoutStyles.paymentOptionName}>UPI Payment</Text>
+              <Text style={styles.mutedText}>GPay, PhonePe, Paytm, BHIM & more</Text>
+            </View>
+            {selectedPaymentMethod === 'UPI' && (
+              <View style={checkoutStyles.checkCircle}>
+                <Text style={checkoutStyles.checkMark}>✓</Text>
+              </View>
+            )}
+          </Pressable>
+
+          {/* Cash on Delivery Option */}
+          <Pressable
+            onPress={() => setSelectedPaymentMethod('COD')}
+            style={[
+              checkoutStyles.paymentOptionCard,
+              selectedPaymentMethod === 'COD' && checkoutStyles.paymentOptionSelected
+            ]}
+          >
+            <Text style={checkoutStyles.paymentOptionIcon}>💵</Text>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={checkoutStyles.paymentOptionName}>Cash on Delivery</Text>
+              <Text style={styles.mutedText}>Pay when your order arrives</Text>
+            </View>
+            {selectedPaymentMethod === 'COD' && (
+              <View style={checkoutStyles.checkCircle}>
+                <Text style={checkoutStyles.checkMark}>✓</Text>
+              </View>
+            )}
+          </Pressable>
+        </View>
+
+        <View style={checkoutStyles.totalSection}>
+          <View style={checkoutStyles.totalRow}>
+            <Text style={styles.mutedText}>Order Total</Text>
+            <Text style={checkoutStyles.totalValue}>₹{total}</Text>
+          </View>
+          <View style={checkoutStyles.totalRow}>
+            <Text style={styles.mutedText}>Delivery</Text>
+            <Text style={{ color: '#2E7D32', fontWeight: '600' }}>FREE</Text>
+          </View>
+          <View style={[checkoutStyles.totalRow, { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#E0E0E0' }]}>
+            <Text style={checkoutStyles.grandTotalLabel}>Total to Pay</Text>
+            <Text style={checkoutStyles.grandTotal}>₹{total}</Text>
+          </View>
+        </View>
+
+        <Pressable
+          onPress={handlePlaceOrder}
+          style={[styles.checkoutButton, loading && { opacity: 0.6 }]}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.checkoutText}>
+              {selectedPaymentMethod === 'COD' ? 'Place Order (Pay on Delivery)' : 'Place Order & Pay'}
+            </Text>
+          )}
+        </Pressable>
+      </ScrollView>
+    );
+  }
+
+  return (
+    <ScrollView style={styles.page} contentContainerStyle={{ paddingBottom: 100 }}>
+      <View style={styles.detailHeader}>
+        <Pressable onPress={onBack} style={styles.backButton}><Text style={styles.backText}>‹</Text></Pressable>
+        <Text style={styles.title}>Checkout</Text>
+        <View style={{ width: 36 }} />
+      </View>
+
+      <View style={checkoutStyles.section}>
+        <Text style={checkoutStyles.sectionTitle}>Order Summary ({cart.length} items)</Text>
+        {cart.map((item) => (
+          <View key={item.id} style={checkoutStyles.orderItem}>
+            <View style={checkoutStyles.orderItemImage}>
+              {item.imageUrl ? (
+                <Image source={{ uri: item.imageUrl }} style={{ width: 40, height: 40 }} resizeMode="contain" />
+              ) : (
+                <Text style={{ fontSize: 10, color: '#999' }}>No img</Text>
+              )}
+            </View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={checkoutStyles.orderItemName}>{item.name}</Text>
+              <Text style={styles.mutedText}>{item.unit} × {item.quantity}</Text>
+            </View>
+            <Text style={checkoutStyles.orderItemPrice}>₹{item.price * item.quantity}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={checkoutStyles.totalSection}>
+        <View style={checkoutStyles.totalRow}>
+          <Text style={styles.mutedText}>Subtotal</Text>
+          <Text style={checkoutStyles.totalValue}>₹{total}</Text>
+        </View>
+        <View style={checkoutStyles.totalRow}>
+          <Text style={styles.mutedText}>Delivery</Text>
+          <Text style={{ color: '#2E7D32', fontWeight: '600' }}>FREE</Text>
+        </View>
+        <View style={[checkoutStyles.totalRow, { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#E0E0E0' }]}>
+          <Text style={checkoutStyles.grandTotalLabel}>Total</Text>
+          <Text style={checkoutStyles.grandTotal}>₹{total}</Text>
+        </View>
+      </View>
+
+      <Pressable
+        onPress={handleProceedToAddress}
+        style={styles.checkoutButton}
+      >
+        <Text style={styles.checkoutText}>Add Delivery Address</Text>
+      </Pressable>
+    </ScrollView>
+  );
+}
+
+const checkoutStyles = StyleSheet.create({
+  section: { marginBottom: 24 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#173B2B', marginBottom: 12 },
+  addressCard: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16 },
+  addressName: { fontSize: 16, fontWeight: '700', color: '#173B2B' },
+  addressText: { fontSize: 14, color: '#5F6F66', marginTop: 4 },
+  orderItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 12, padding: 12, marginBottom: 8 },
+  orderItemImage: { width: 48, height: 48, borderRadius: 8, backgroundColor: '#F5F5F5', alignItems: 'center', justifyContent: 'center' },
+  orderItemName: { fontSize: 14, fontWeight: '600', color: '#173B2B' },
+  orderItemPrice: { fontSize: 15, fontWeight: '700', color: '#173B2B' },
+  paymentMethodCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, borderWidth: 2, borderColor: '#2E7D32' },
+  paymentMethodName: { fontSize: 15, fontWeight: '600', color: '#173B2B' },
+  totalSection: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 24 },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  totalValue: { fontSize: 15, color: '#173B2B' },
+  grandTotalLabel: { fontSize: 18, fontWeight: '700', color: '#173B2B' },
+  grandTotal: { fontSize: 22, fontWeight: '800', color: '#173B2B' },
+  orderCard: { backgroundColor: '#E8F5E9', borderRadius: 12, padding: 16, marginBottom: 24 },
+  orderTitle: { fontSize: 18, fontWeight: '700', color: '#173B2B' },
+  paymentCard: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 20 },
+  cardTitle: { fontSize: 18, fontWeight: '700', color: '#173B2B', marginBottom: 16 },
+  upiDetails: { backgroundColor: '#F8F8F8', borderRadius: 12, padding: 16, marginBottom: 20 },
+  upiRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  upiLabel: { fontSize: 13, color: '#738078' },
+  upiValue: { fontSize: 14, fontWeight: '600', color: '#173B2B' },
+  upiAmount: { fontSize: 20, fontWeight: '800', color: '#173B2B' },
+  upiButton: { backgroundColor: '#5F259F', borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
+  upiButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  paymentInfo: { backgroundColor: '#F8F8F8', borderRadius: 12, padding: 20, marginTop: 24, alignItems: 'center', width: '100%' },
+  paymentLabel: { fontSize: 14, color: '#738078' },
+  paymentAmount: { fontSize: 32, fontWeight: '800', color: '#173B2B', marginTop: 8 },
+  secondaryButton: { backgroundColor: '#FFFFFF', borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#E0E0E0', width: '100%' },
+  secondaryButtonText: { color: '#173B2B', fontSize: 15, fontWeight: '600' },
+  // Payment options
+  paymentOptionCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 2, borderColor: '#E0E0E0' },
+  paymentOptionSelected: { borderColor: '#2E7D32', backgroundColor: '#F0FFF4' },
+  paymentOptionIcon: { fontSize: 28 },
+  paymentOptionName: { fontSize: 16, fontWeight: '700', color: '#173B2B' },
+  checkCircle: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#2E7D32', alignItems: 'center', justifyContent: 'center' },
+  checkMark: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  // UPI Apps Grid
+  upiAppsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 20 },
+  upiAppCard: { width: '48%', backgroundColor: '#F8F8F8', borderRadius: 12, padding: 16, alignItems: 'center', marginBottom: 12 },
+  upiAppIcon: { fontSize: 32, marginBottom: 8 },
+  upiAppName: { fontSize: 14, fontWeight: '600', color: '#173B2B' },
+  // Divider
+  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 16 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#E0E0E0' },
+  dividerText: { paddingHorizontal: 16, color: '#738078', fontSize: 12, fontWeight: '600' },
+  // Input styles
+  inputGroup: { marginBottom: 16 },
+  inputLabel: { fontSize: 14, fontWeight: '600', color: '#173B2B', marginBottom: 8 },
+  input: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, fontSize: 16, color: '#173B2B', borderWidth: 1, borderColor: '#E0E0E0' },
+  // Saved address styles
+  savedAddressCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E8F5E9', borderRadius: 12, padding: 16, borderWidth: 2, borderColor: '#2E7D32' },
+  savedAddressName: { fontSize: 16, fontWeight: '700', color: '#173B2B', marginBottom: 4 },
+  savedAddressText: { fontSize: 13, color: '#5F6F66', marginTop: 2 },
+  useButtonSmall: { backgroundColor: '#2E7D32', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  useButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  addressTag: { backgroundColor: '#E8F5E9', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 8 },
+  addressTagText: { color: '#2E7D32', fontSize: 10, fontWeight: '700' },
+  // Manual payment styles
+  upiIdBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0F8FF', borderRadius: 12, padding: 16, marginBottom: 16, borderWidth: 2, borderColor: '#2E7D32', borderStyle: 'dashed' },
+  upiIdText: { flex: 1, fontSize: 18, fontWeight: '700', color: '#173B2B', textAlign: 'center' },
+  copyButton: { backgroundColor: '#2E7D32', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 8 },
+  copyButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  amountBox: { backgroundColor: '#E8F5E9', borderRadius: 12, padding: 20, alignItems: 'center', marginBottom: 20 },
+  amountLabel: { fontSize: 14, color: '#738078', marginBottom: 4 },
+  amountValue: { fontSize: 36, fontWeight: '800', color: '#173B2B' },
+  instructionsBox: { backgroundColor: '#FFF9E6', borderRadius: 12, padding: 16, marginBottom: 20 },
+  instructionsTitle: { fontSize: 14, fontWeight: '700', color: '#173B2B', marginBottom: 8 },
+  instructionStep: { fontSize: 13, color: '#5F6F66', marginBottom: 4, paddingLeft: 4 },
+});
 
 type VariantGroups = Record<string, string[]>;
 
@@ -807,14 +1484,40 @@ function ProductDetails({ product, onBack, onAdd, onChangeQuantity, cart, onOpen
 }
 
 function OrdersScreen({ onBack }: { onBack: () => void }) {
-  const orders = [
-    { id: 'OD-1048', title: 'Tomato Seeds Pack', detail: '2 items • Delivered on Aug 29', status: 'Delivered', color: '#E4F3D8' },
-    { id: 'OD-1045', title: 'Organic Compost', detail: '1 item • Out for delivery', status: 'Shipping', color: '#FDECC8' },
-    { id: 'OD-1039', title: 'Fertilizer Combo', detail: '3 items • Order placed', status: 'Processing', color: '#E8F1FF' },
-  ];
+  const { user } = useAuth();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (user) {
+      api.getUserOrders(user.id)
+        .then(setOrders)
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
+  }, [user]);
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'delivered': return '#E4F3D8';
+      case 'shipped': return '#FDECC8';
+      case 'confirmed': return '#E8F1FF';
+      case 'processing': return '#FFF3E0';
+      case 'placed': return '#F3E5F5';
+      case 'cancelled': return '#FFEBEE';
+      default: return '#F5F5F5';
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
 
   return (
-    <View style={[styles.page, styles.profilePage]}>
+    <ScrollView style={[styles.page, styles.profilePage]} contentContainerStyle={{ paddingBottom: 100 }}>
       <View style={styles.detailHeader}>
         <Pressable onPress={onBack} style={styles.backButton}><Text style={styles.backText}>‹</Text></Pressable>
         <Text style={styles.title}>Your orders</Text>
@@ -822,15 +1525,32 @@ function OrdersScreen({ onBack }: { onBack: () => void }) {
       </View>
       <Text style={[styles.mutedText, { marginTop: 0 }]}>Track your recent purchases and delivery status.</Text>
 
-      {orders.map((order) => (
-        <View key={order.id} style={styles.infoCard}>
-          <Text style={styles.infoCardTitle}>{order.id}</Text>
-          <Text style={styles.infoCardText}>{order.title}</Text>
-          <Text style={styles.mutedText}>{order.detail}</Text>
-          <Text style={{ backgroundColor: order.color, borderRadius: 999, color: '#173B2B', fontSize: 11, fontWeight: '700', marginTop: 12, overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' }}>{order.status}</Text>
+      {loading ? (
+        <ActivityIndicator size="large" color="#2E7D32" style={{ marginTop: 40 }} />
+      ) : orders.length === 0 ? (
+        <View style={[styles.centerContent, { marginTop: 60 }]}>
+          <Text style={{ fontSize: 48, marginBottom: 12 }}>📦</Text>
+          <Text style={styles.sectionTitle}>No orders yet</Text>
+          <Text style={styles.mutedText}>Your orders will appear here</Text>
         </View>
-      ))}
-    </View>
+      ) : (
+        orders.map((order) => (
+          <View key={order.id} style={styles.infoCard}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.infoCardTitle}>Order #{order.id}</Text>
+              <Text style={{ backgroundColor: getStatusColor(order.orderStatus), borderRadius: 999, color: '#173B2B', fontSize: 11, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 6 }}>
+                {order.orderStatus.toUpperCase()}
+              </Text>
+            </View>
+            <Text style={styles.mutedText}>{order.items?.length || 0} items • ₹{Number(order.totalAmount).toFixed(0)}</Text>
+            <Text style={styles.mutedText}>Placed on {formatDate(order.createdAt)}</Text>
+            <Text style={[styles.mutedText, { marginTop: 4 }]}>
+              Payment: {order.paymentMethod} ({order.paymentStatus})
+            </Text>
+          </View>
+        ))
+      )}
+    </ScrollView>
   );
 }
 
@@ -969,10 +1689,6 @@ const styles = StyleSheet.create({
   brandBox: { alignItems: 'center', backgroundColor: '#F7F3E7', borderRadius: 12, flexDirection: 'row', paddingHorizontal: 10, paddingVertical: 8 },
   brandText: { color: '#173B2B', fontSize: 22, fontWeight: '800' },
   brandAccent: { color: '#d38525', marginLeft: 2 },
-  locationBlock: { flex: 1, justifyContent: 'center', paddingHorizontal: 4 },
-  locationLabel: { color: '#DDEAD9', fontSize: 11 },
-  locationText: { color: '#F7FAF7', fontSize: 15, fontWeight: '700', marginTop: 2 },
-  locationLink: { color: '#F9C76B', fontSize: 11, marginTop: 2 },
   categoryHeading: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   greeting: { color: '#738078', fontSize: 13 },
   title: { color: '#173B2B', fontSize: 21, fontWeight: '800', marginTop: 2 },
@@ -1009,7 +1725,7 @@ const styles = StyleSheet.create({
   categoryDropdownText: { color: '#173B2B', fontSize: 14, fontWeight: '500' },
   searchResultHeader: { alignItems: 'center', flexDirection: 'row', gap: 12, marginBottom: 8 },
   productList: { paddingBottom: 140, paddingTop: 12 },
-  productRow: { gap: '4%', justifyContent: 'space-between' },
+  productRow: { gap: 12, justifyContent: 'flex-start' },
   sectionHeading: { alignItems: 'flex-end', flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 },
   resultCount: { color: '#738078', fontSize: 12 },
   emptyText: { color: '#738078', fontSize: 14, marginTop: 20, textAlign: 'center' },

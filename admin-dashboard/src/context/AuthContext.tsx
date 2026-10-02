@@ -7,6 +7,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
+  signup: (name: string, email: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -42,6 +43,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAdmin(result.admin);
   }, []);
 
+  const signup = useCallback(async (name: string, email: string, password: string) => {
+    const result = await adminApi.signup(name, email, password);
+    localStorage.setItem('adminToken', result.token);
+    localStorage.setItem('adminUser', JSON.stringify(result.admin));
+    setAdmin(result.admin);
+  }, []);
+
   const logout = useCallback(() => {
     localStorage.removeItem('adminToken');
     localStorage.removeItem('adminUser');
@@ -55,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!admin,
         login,
+        signup,
         logout,
       }}
     >
